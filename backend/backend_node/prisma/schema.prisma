@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// v5 Standard Setup (No config file needed)
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  orders    Order[]
+}
+
+model Product {
+  id          Int         @id @default(autoincrement())
+  name        String
+  price       Decimal     @db.Decimal(10, 2)
+  stock       Int
+  category    String
+  imageUrl    String?
+  orderItems  OrderItem[]
+}
+
+model Order {
+  id          Int         @id @default(autoincrement())
+  userId      Int
+  user        User        @relation(fields: [userId], references: [id])
+  totalAmount Decimal     @db.Decimal(10, 2)
+  status      String      @default("PENDING")
+  items       OrderItem[]
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Decimal @db.Decimal(10, 2)
+}
