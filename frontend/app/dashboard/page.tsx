@@ -57,26 +57,35 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-8 text-black">
       {/* Header */}
-        
-     <div className="flex justify-between items-center mb-8">
-  <h1 className="text-3xl font-bold text-gray-800">MegaMart Dashboard</h1>
-  <div className="space-x-4">
-    {/* NEW BUTTON */}
-    <button 
-      onClick={() => router.push('/products')}
-      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
-    >
-      Browse Store
-    </button>
-    
-    <button 
-      onClick={handleLogout}
-      className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
-    >
-      Logout
-    </button>
-  </div>
-</div>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">MegaMart Dashboard</h1>
+        <div className="space-x-4">
+          
+          {/* NEW: AI Search Button */}
+          <button 
+            onClick={() => router.push('/search')}
+            className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition font-medium"
+          >
+            🔍 AI Search
+          </button>
+
+          {/* Browse Store Button */}
+          <button 
+            onClick={() => router.push('/products')}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+          >
+            Browse Store
+          </button>
+          
+          {/* Logout Button */}
+          <button 
+            onClick={handleLogout}
+            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
 
       {/* Stats Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -104,10 +113,10 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {data?.aiRecommendations.map((item) => (
             <div key={item.id} className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition duration-300">
-              <div className="h-32 bg-gray-200 rounded mb-4 flex items-center justify-center text-gray-400">
-                Product Image
+              <div className="h-32 bg-gray-200 rounded mb-4 flex items-center justify-center text-gray-400 overflow-hidden">
+                 {/* Simple Placeholder Image Logic */}
+                 <span className="text-4xl">🛍️</span>
               </div>
-                {/* <img src = {"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSfY9y_HaPXn5z-oAUhLbdyaHDGNRti64H2tA&s"}></img> */}
 
               <h3 className="font-bold text-lg">{item.name}</h3>
               <p className="text-sm text-blue-600 mt-2 font-medium">Why? {item.reason}</p>

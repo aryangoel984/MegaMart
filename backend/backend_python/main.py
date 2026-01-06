@@ -1,51 +1,37 @@
-# backend_python/main.py
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
+from sentence_transformers import SentenceTransformer
 
 app = FastAPI()
 
-# Define the Input Schema (Like TypeScript Interfaces)
-class Product(BaseModel):
-    id: int
-    category: str
+# 1. Load the AI Brain (This runs once when the server starts)
+# We use 'all-MiniLM-L6-v2'. It's small, fast, and great for e-commerce.
+print("⏳ Loading AI Model... (This might take a moment)")
+model = SentenceTransformer('all-MiniLM-L6-v2')
+print("✅ AI Model Loaded!")
+
+class EmbedRequest(BaseModel):
+    text: str
 
 class RecommendationRequest(BaseModel):
     user_id: int
-    past_purchases: List[Product]
+    past_purchases: list
 
-# The "Brain" Logic (Rule-Based for now)
-@app.post("/recommend")
-def get_recommendations(data: RecommendationRequest):
-    print(f"🧠 AI Service received request for User {data.user_id}")
-    
-    # Simple Logic: If they bought Electronics, recommend Accessories
-    has_electronics = any(p.category == "Electronics" for p in data.past_purchases)
-    
-    recommendations = []
-    
-    if has_electronics:
-        recommendations.append({
-            "id": 101,
-            "name": "Noise Cancelling Headphones",
-            "reason": "Because you bought Electronics"
-        })
-        recommendations.append({
-            "id": 102,
-            "name": "Screen Cleaner",
-            "reason": "Keep your gadgets clean"
-        })
-    else:
-        # Default fallback
-        recommendations.append({
-            "id": 201,
-            "name": "Best Selling T-Shirt",
-            "reason": "Popular choice"
-        })
-
-    return {"recommendations": recommendations}
-
-# Health Check
 @app.get("/")
 def read_root():
-    return {"status": "AI Service is Running"}
+    return {"status": "AI Service Running"}
+
+# 2. NEW ENDPOINT: Text -> Numbers
+@app.post("/embed")
+def generate_embedding(data: EmbedRequest):
+    # This single line does the magic
+    vector = model.encode(data.text)
+    return {"vector": vector.tolist()}
+
+# 3. OLD ENDPOINT: Keep this so your Dashboard doesn't break
+@app.post("/recommend")
+def get_recommendations(data: RecommendationRequest):
+    # Simple logic for now (Rule-Based)
+    if "Electronics" in data.past_purchases:
+        return {"recommendations": [{"id": 100, "name": "Cable Organizer", "reason": "Great for your gadgets"}]}
+    return {"recommendations": []}

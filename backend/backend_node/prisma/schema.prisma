@@ -1,47 +1,61 @@
+// backend_node/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
+  // 1. Enable extensions for pgvector support
+  previewFeatures = ["postgresqlExtensions"] 
 }
 
-// v5 Standard Setup (No config file needed)
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  // 2. Enable the pgvector extension in the database
+  extensions = [vector] 
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String?
-  orders    Order[]
+  id       Int     @id @default(autoincrement())
+  email    String  @unique
+  password String
+  name     String?
+  orders   Order[]
 }
 
 model Product {
-  id          Int         @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
-  price       Decimal     @db.Decimal(10, 2)
+  price       Decimal
   stock       Int
   category    String
   imageUrl    String?
-  orderItems  OrderItem[]
+
+  // 3. This was missing! It holds the text for the AI to read.
+  description String?  
+
+  // 4. This stores the AI "Coordinates" (384 numbers).
+  //    "Unsupported" means Prisma doesn't touch it; we use Raw SQL.
+  descriptionVector Unsupported("vector(384)")? 
+
+  items       OrderItem[]
 }
 
 model Order {
   id          Int         @id @default(autoincrement())
+  createdAt   DateTime    @default(now())
+  status      String      @default("PENDING")
+  totalAmount Decimal
   userId      Int
   user        User        @relation(fields: [userId], references: [id])
-  totalAmount Decimal     @db.Decimal(10, 2)
-  status      String      @default("PENDING")
   items       OrderItem[]
 }
 
 model OrderItem {
   id        Int     @id @default(autoincrement())
+  quantity  Int
+  price     Decimal
   orderId   Int
   order     Order   @relation(fields: [orderId], references: [id])
   productId Int
   product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
-  price     Decimal @db.Decimal(10, 2)
 }
