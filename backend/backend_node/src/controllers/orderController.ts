@@ -29,12 +29,12 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     });
 
     let totalAmount = 0;
-    
+
     // Validate stock and calculate total
     for (const item of items) {
-        // @ts-ignore
+      // @ts-ignore
       const product = products.find((p) => p.id === item.productId);
-      
+
       if (!product) {
         res.status(404).json({ message: `Product ${item.productId} not found` });
         return;
@@ -50,7 +50,7 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
     // 2. THE TRANSACTION (Interview Critical: ACID Property)
     // All these operations happen together. If stock update fails, Order is not created.
     const result = await prisma.$transaction(async (tx) => {
-      
+
       // A. Create the Order
       // @ts-ignore
       const order = await tx.order.create({
@@ -61,7 +61,7 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
           // Create OrderItems automatically using 'create' relation
           items: {
             create: items.map((item: any) => {
-                // @ts-ignore
+              // @ts-ignore
               const product = products.find((p) => p.id === item.productId)!;
               return {
                 productId: item.productId,
@@ -91,5 +91,31 @@ export const createOrder = async (req: AuthRequest, res: Response): Promise<void
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Transaction failed', error });
+  }
+};
+
+// GET /api/orders
+export const getUserOrders = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { userId },
+      include: {
+        items: {
+          include: { product: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(orders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Failed to fetch orders' });
   }
 };

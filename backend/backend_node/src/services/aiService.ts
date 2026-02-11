@@ -18,19 +18,17 @@ export const generateEmbedding = async (text: string): Promise<number[]> => {
   }
 };
 
-/**
- * 2. Recommendation Logic (Existing)
- * Sends past purchases to get smart suggestions.
- */
-export const getRecommendations = async (userId: number, pastPurchases: any[]) => {
+// 2. Recommendation Logic
+// Returns a Vector (number[]) OR null
+export const getRecommendations = async (userId: number, pastPurchases: any[]): Promise<number[] | null> => {
   try {
     const response = await axios.post(`${PYTHON_URL}/recommend`, {
       user_id: userId,
       past_purchases: pastPurchases
     });
-    return response.data.recommendations;
-  } catch (error) {
-    console.error("⚠️ AI Recommendation Service Error:", error);
-    return []; 
+    return response.data.vector;
+  } catch (error: any) {
+    console.error("⚠️ AI Recommendation Service Error:", error.response?.data || error.message);
+    return [];
   }
 };

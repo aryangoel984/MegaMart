@@ -60,9 +60,9 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-800">MegaMart Dashboard</h1>
         <div className="space-x-4">
-          
+
           {/* NEW: AI Search Button */}
-          <button 
+          <button
             onClick={() => router.push('/search')}
             className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 transition font-medium"
           >
@@ -70,15 +70,23 @@ export default function Dashboard() {
           </button>
 
           {/* Browse Store Button */}
-          <button 
+          <button
             onClick={() => router.push('/products')}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
           >
             Browse Store
           </button>
-          
+
+          {/* NEW: My Orders Button */}
+          <button
+            onClick={() => router.push('/orders')}
+            className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900 transition"
+          >
+            My Orders
+          </button>
+
           {/* Logout Button */}
-          <button 
+          <button
             onClick={handleLogout}
             className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
           >
@@ -103,10 +111,10 @@ export default function Dashboard() {
 
       {/* AI Recommendations Section */}
       <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-        🤖 AI Recommendations 
+        🤖 AI Recommendations
         <span className="text-sm font-normal text-gray-500 bg-gray-200 px-2 py-1 rounded-full">Powered by Python</span>
       </h2>
-      
+
       {data?.aiRecommendations.length === 0 ? (
         <p className="text-gray-500">No recommendations yet. Buy something!</p>
       ) : (
@@ -114,8 +122,8 @@ export default function Dashboard() {
           {data?.aiRecommendations.map((item) => (
             <div key={item.id} className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition duration-300">
               <div className="h-32 bg-gray-200 rounded mb-4 flex items-center justify-center text-gray-400 overflow-hidden">
-                 {/* Simple Placeholder Image Logic */}
-                 <span className="text-4xl">🛍️</span>
+                {/* Simple Placeholder Image Logic */}
+                <span className="text-4xl">🛍️</span>
               </div>
 
               <h3 className="font-bold text-lg">{item.name}</h3>

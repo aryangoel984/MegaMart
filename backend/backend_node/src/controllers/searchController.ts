@@ -9,7 +9,6 @@ export const searchProducts = async (req: Request, res: Response): Promise<void>
       res.status(400).json({ message: "Query required" });
       return;
     }
-
     // 1. Convert User Search -> Vector (using Python)
     const queryVector = await generateEmbedding(query);
     if (queryVector.length === 0) {

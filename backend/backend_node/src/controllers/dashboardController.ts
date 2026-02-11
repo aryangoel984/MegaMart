@@ -20,32 +20,56 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
     // We need the products inside the orders
     const orders = await prisma.order.findMany({
       where: { userId },
-      include: { 
+      include: {
         items: {
-          include: { product: true } 
-        } 
+          include: { product: true }
+        }
       }
     });
 
     // 2. Format Data for Python
-    // Extract just the product details from the nested structure
+    // Python expects a list of categories (strings), e.g. ["Electronics", "Clothing"]
+    // We extracted objects before, which caused the bug.
     // @ts-ignore
-    const pastPurchases = orders.flatMap(order => 
-        // @ts-ignore
-      order.items.map(item => ({
-        id: item.productId,
-        category: item.product.category
-      }))
+    const pastPurchases = orders.flatMap(order =>
+      // @ts-ignore
+      order.items.map(item => item.product.category)
     );
 
-    // 3. Call the Python AI Service
-    const recommendations = await getRecommendations(userId, pastPurchases);
+    // 3. Get Recommendation Embedding from Python
+    const vector = await getRecommendations(userId, pastPurchases);
+
+    let recommendedProducts: any[] = [];
+
+    if (vector) {
+      // SCENARIO 1: Personalized (Vector Search)
+      const vectorString = JSON.stringify(vector);
+      // @ts-ignore
+      recommendedProducts = await prisma.$queryRaw`
+        SELECT id, name, description, price, "imageUrl", category,
+        1 - ("descriptionVector" <=> ${vectorString}::vector) as similarity
+        FROM "Product"
+        ORDER BY similarity DESC
+        LIMIT 3;
+      `;
+    } else {
+      // SCENARIO 2: Cold Start (Fallback to real DB "Trending" / Latest)
+      recommendedProducts = await prisma.product.findMany({
+        take: 3,
+        orderBy: { id: 'desc' } // Just get the latest ones for now
+      });
+    }
 
     // 4. Return Final Dashboard Data
     res.json({
       message: `Welcome back!`,
       pastOrdersCount: orders.length,
-      aiRecommendations: recommendations
+      aiRecommendations: recommendedProducts.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        // Add a helpful reason tag
+        reason: vector ? 'Based on your history' : 'Popular right now'
+      }))
     });
 
   } catch (error) {
