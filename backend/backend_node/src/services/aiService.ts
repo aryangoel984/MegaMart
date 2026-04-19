@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Base URL for the Python Service
-const PYTHON_URL = 'http://localhost:8000';
+const PYTHON_URL = process.env.PYTHON_SERVICE_URL;
 
 /**
  * 1. Semantic Search Logic

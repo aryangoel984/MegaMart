@@ -14,17 +14,17 @@ const app = express();
 // ✅ ENABLE CORS MIDDLEWARE
 // This tells the browser: "It is okay to accept requests from localhost:3001"
 app.use(cors({
-  origin: 'http://localhost:3001', // The URL of your Frontend
+  origin: process.env.FRONTEND_URL, // The URL of your Frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
 app.use(express.json());
 
 // Use the routes
-app.use('/api/auth', authRoutes); 
-app.use('/api/orders',orderRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/products',productRoutes);
+app.use('/api/products', productRoutes);
 app.use('/api/search', searchRoutes)
 
 export default app;

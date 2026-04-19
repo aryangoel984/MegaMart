@@ -67,6 +67,7 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
       aiRecommendations: recommendedProducts.map((p: any) => ({
         id: p.id,
         name: p.name,
+        imageUrl: p.imageUrl, // <-- FIXED: Attached the image
         // Add a helpful reason tag
         reason: vector ? 'Based on your history' : 'Popular right now'
       }))
