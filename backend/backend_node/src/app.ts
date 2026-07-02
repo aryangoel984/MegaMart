@@ -7,6 +7,7 @@ import orderRoutes from './routes/orderRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import productRoutes from './routes/productRoutes';
 import searchRoutes from './routes/searchRoutes';
+import chatRoutes from './routes/chatRoutes';
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/products', productRoutes);
-app.use('/api/search', searchRoutes)
+app.use('/api/search', searchRoutes);
+app.use('/api/chat', chatRoutes);
 
 export default app;

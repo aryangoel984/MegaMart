@@ -11,6 +11,7 @@ const orderRoutes_1 = __importDefault(require("./routes/orderRoutes"));
 const dashboardRoutes_1 = __importDefault(require("./routes/dashboardRoutes"));
 const productRoutes_1 = __importDefault(require("./routes/productRoutes"));
 const searchRoutes_1 = __importDefault(require("./routes/searchRoutes"));
+const chatRoutes_1 = __importDefault(require("./routes/chatRoutes"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 // ✅ ENABLE CORS MIDDLEWARE
@@ -27,4 +28,5 @@ app.use('/api/orders', orderRoutes_1.default);
 app.use('/api/dashboard', dashboardRoutes_1.default);
 app.use('/api/products', productRoutes_1.default);
 app.use('/api/search', searchRoutes_1.default);
+app.use('/api/chat', chatRoutes_1.default);
 exports.default = app;

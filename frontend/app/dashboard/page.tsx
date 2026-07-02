@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/utils/api';
-import { Search, ShoppingBag, LogOut, Package, TrendingUp, User, Clock, ChevronRight } from 'lucide-react';
+import { Search, ShoppingBag, LogOut, Package, TrendingUp, User, Clock, ChevronRight, Sparkles } from 'lucide-react';
 
 interface DashboardData {
   message: string;
@@ -84,6 +84,12 @@ export default function Dashboard() {
               className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-md font-medium transition-colors"
             >
               <Search className="w-4 h-4" /> AI Search
+            </button>
+            <button
+              onClick={() => router.push('/chat')}
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-4 py-2 rounded-md font-medium transition-all shadow-sm"
+            >
+              <Sparkles className="w-4 h-4 text-purple-200 animate-pulse" /> AI Shopping Concierge
             </button>
             <button
               onClick={() => router.push('/products')}
