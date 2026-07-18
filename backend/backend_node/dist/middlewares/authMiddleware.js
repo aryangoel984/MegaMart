@@ -13,8 +13,13 @@ const authenticateToken = (req, res, next) => {
         res.status(401).json({ message: 'Access Denied: No Token Provided' });
         return;
     }
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+        res.status(500).json({ message: 'Server misconfigured: JWT_SECRET is missing' });
+        return;
+    }
     // 2. Verify the token
-    jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET, (err, user) => {
+    jsonwebtoken_1.default.verify(token, jwtSecret, (err, user) => {
         if (err) {
             res.status(403).json({ message: 'Invalid Token' });
             return;

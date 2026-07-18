@@ -1,27 +1,29 @@
 import express from 'express';
-import dotenv from 'dotenv';
-import cors from 'cors'; // <--- Import CORS
+import cors from 'cors';
 
-import authRoutes from './routes/authRoutes'; // <-- Import the routes
+import authRoutes from './routes/authRoutes';
 import orderRoutes from './routes/orderRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import productRoutes from './routes/productRoutes';
 import searchRoutes from './routes/searchRoutes';
 import chatRoutes from './routes/chatRoutes';
-
-dotenv.config();
+import { requestLogger } from './middlewares/requestLogger';
 
 const app = express();
-// ✅ ENABLE CORS MIDDLEWARE
-// This tells the browser: "It is okay to accept requests from localhost:3001"
+
+const frontendUrl = process.env.FRONTEND_URL;
+if (!frontendUrl) {
+  console.warn('⚠️ FRONTEND_URL is not set — CORS will block browser requests');
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL, // The URL of your Frontend
+  origin: frontendUrl,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
+  credentials: true,
 }));
 app.use(express.json());
+app.use(requestLogger);
 
-// Use the routes
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/dashboard', dashboardRoutes);

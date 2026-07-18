@@ -17,8 +17,14 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     return;
   }
 
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    res.status(500).json({ message: 'Server misconfigured: JWT_SECRET is missing' });
+    return;
+  }
+
   // 2. Verify the token
-  jwt.verify(token, process.env.JWT_SECRET as string, (err, user) => {
+  jwt.verify(token, jwtSecret, (err, user) => {
     if (err) {
       res.status(403).json({ message: 'Invalid Token' });
       return;

@@ -1,41 +1,115 @@
 import axios from 'axios';
 import prisma from '../config/db';
 
-const PYTHON_URL = process.env.PYTHON_SERVICE_URL;
+const DEFAULT_HF_API_URL =
+  'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
+const DEFAULT_GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const EMBED_MAX_RETRIES = 3;
+const EMBED_RETRY_DELAY_MS = 2000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const vectorNorm = (vector: number[]) =>
+  Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 
 /**
- * 1. Semantic Search Logic
- * Converts text (e.g., "coding laptop") into a Vector (list of numbers).
+ * Converts text (e.g., "coding laptop") into a 384-dim vector via Hugging Face
+ * (same model as before: all-MiniLM-L6-v2 — existing product vectors stay valid).
  */
 export const generateEmbedding = async (text: string): Promise<number[]> => {
-  try {
-    const response = await axios.post(`${PYTHON_URL}/embed`, { text });
-    return response.data.vector;
-  } catch (error) {
-    console.error("⚠️ AI Embedding Service Error:", error);
-    return []; // Return empty array on failure
-  }
-};
+  const HF_API_KEY = process.env.HF_API_KEY;
+  const HF_API_URL = process.env.HF_API_URL || DEFAULT_HF_API_URL;
 
-// 2. Recommendation Logic
-// Returns a Vector (number[]) OR null
-export const getRecommendations = async (userId: number, pastPurchases: any[]): Promise<number[] | null> => {
-  try {
-    const response = await axios.post(`${PYTHON_URL}/recommend`, {
-      user_id: userId,
-      past_purchases: pastPurchases
-    });
-    return response.data.vector;
-  } catch (error: any) {
-    console.error("⚠️ AI Recommendation Service Error:", error.response?.data || error.message);
+  if (!HF_API_KEY) {
+    console.error('[HF EMBEDDING] FAILED: HF_API_KEY is not set');
     return [];
   }
+
+  for (let attempt = 1; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    const startedAt = Date.now();
+    console.log('\n[HF EMBEDDING] Sending request');
+    console.log('  provider: Hugging Face Inference');
+    console.log('  model: sentence-transformers/all-MiniLM-L6-v2');
+    console.log(`  input: ${JSON.stringify(text)}`);
+    console.log(`  input length: ${text.length} characters`);
+    console.log(`  attempt: ${attempt}/${EMBED_MAX_RETRIES}`);
+
+    try {
+      const response = await axios.post(
+        HF_API_URL,
+        { inputs: text },
+        {
+          headers: {
+            Authorization: `Bearer ${HF_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+        }
+      );
+
+      const data = response.data;
+      let vector: number[] | null = null;
+
+      // Single string → flat [384]; sometimes wrapped as [[384]]
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        vector = data[0] as number[];
+      }
+      if (!vector && Array.isArray(data) && typeof data[0] === 'number') {
+        vector = data as number[];
+      }
+
+      if (!vector) {
+        console.error('[HF EMBEDDING] FAILED: unexpected response shape:', data);
+        return [];
+      }
+
+      console.log('[HF EMBEDDING] SUCCESS: Hugging Face returned a vector');
+      console.log(`  HTTP status: ${response.status}`);
+      console.log(`  duration: ${Date.now() - startedAt}ms`);
+      console.log(`  dimensions: ${vector.length} (expected 384)`);
+      console.log(`  vector norm: ${vectorNorm(vector).toFixed(6)}`);
+      console.log(`  sample values: [${vector.slice(0, 5).map((v) => v.toFixed(6)).join(', ')}]`);
+      console.log(`  validation: ${vector.length === 384 ? 'PASS' : 'FAIL'}\n`);
+      return vector.length === 384 ? vector : [];
+    } catch (error: any) {
+      const status = error.response?.status;
+      const isRetryable = status === 503 || status === 504 || !status;
+      console.error(
+        `[HF EMBEDDING] FAILED after ${Date.now() - startedAt}ms (HTTP ${status || 'network error'}):`,
+        error.response?.data || error.message
+      );
+      if (isRetryable && attempt < EMBED_MAX_RETRIES) {
+        await sleep(EMBED_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      return [];
+    }
+  }
+  return [];
 };
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_KEY = process.env.GROQ_API_KEY;
+/**
+ * Recommendation vector from past purchase categories (or null for cold start).
+ * Same behavior as the old Python /recommend endpoint, now done in Node.
+ */
+export const getRecommendations = async (
+  _userId: number,
+  pastPurchases: any[]
+): Promise<number[] | null> => {
+  try {
+    if (!pastPurchases || pastPurchases.length === 0) {
+      console.log('[HF RECOMMENDATION] Cold start: no past purchases; using latest products');
+      return null;
+    }
+    console.log(`[HF RECOMMENDATION] Embedding ${pastPurchases.length} purchase categories`);
+    const vector = await generateEmbedding(pastPurchases.join(' '));
+    return vector.length > 0 ? vector : null;
+  } catch (error: any) {
+    console.error('⚠️ AI Recommendation Error:', error.message);
+    return null;
+  }
+};
 
-// 1. Tool Schemas for Groq Llama 3.3 Function Calling
+// 1. Tool Schemas for Groq function calling
 const tools = [
   {
     type: 'function',
@@ -373,6 +447,9 @@ export const executeMockAgent = async (userId: number, userMessage: string): Pro
 // --- ACTIVE SERVICE ENTRYPOINT ---
 
 export const askAgent = async (userId: number, message: string, chatHistory: any[]): Promise<any> => {
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  const GROQ_URL = process.env.GROQ_URL || DEFAULT_GROQ_URL;
+
   // If no Groq Key, fall back to high-fidelity simulated agent
   if (!GROQ_KEY) {
     console.log("ℹ️ No GROQ_API_KEY detected. Utilizing mock fallback agent.");

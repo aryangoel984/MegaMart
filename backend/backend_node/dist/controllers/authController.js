@@ -50,9 +50,13 @@ const login = async (req, res) => {
             res.status(400).json({ message: 'Invalid credentials' });
             return;
         }
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+            res.status(500).json({ message: 'Server misconfigured: JWT_SECRET is missing' });
+            return;
+        }
         // Generate JWT Token (The "ID Card")
-        const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email }, process.env.JWT_SECRET || 'supersecretkey', // We will add this to .env later
-        { expiresIn: '1h' });
+        const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email }, jwtSecret, { expiresIn: '1h' });
         res.json({ token, userId: user.id, name: user.name });
     }
     catch (error) {
