@@ -2,6 +2,8 @@
 
 An AI-powered, full-stack e-commerce platform featuring semantic product search, personalized recommendations, an LLM shopping concierge, transactional checkout, and vector similarity search.
 
+[Live Demo](https://mega-mart-one.vercel.app/)
+
 MegaMart combines a modern Next.js storefront with an Express API, PostgreSQL/pgvector, Hugging Face embeddings, and Groq tool calling. The application is designed as a deployment-friendly monorepo and does not require a self-hosted machine-learning server.
 
 ## Highlights
