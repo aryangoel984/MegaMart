@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.askAgent = exports.executeMockAgent = exports.executeCheckoutCart = exports.executeAddToCart = exports.executeViewCart = exports.executeSearchCatalog = exports.getRecommendations = exports.generateEmbedding = exports.buildKeywordFallbackWhere = void 0;
+exports.askAgent = exports.executeMockAgent = exports.tryDeterministicIntent = exports.executeCheckoutCart = exports.executeAddToCart = exports.executeViewCart = exports.executeSearchCatalog = exports.getRecommendations = exports.generateEmbedding = exports.buildKeywordFallbackWhere = void 0;
 const axios_1 = __importDefault(require("axios"));
 const db_1 = __importDefault(require("../config/db"));
 const DEFAULT_HF_API_URL = 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
@@ -371,24 +371,19 @@ const executeCheckoutCart = async (userId) => {
 };
 exports.executeCheckoutCart = executeCheckoutCart;
 // --- MOCK NLP SERVICE FALLBACK (For Keyless Execution) ---
-const executeMockAgent = async (userId, userMessage) => {
+/**
+ * Handles the exact, unambiguous commands the frontend's buttons send
+ * (e.g. "Add 1x of product ID 9 to my cart", "checkout my cart") directly
+ * against the database, bypassing both the regex-heuristic mock agent and
+ * the Groq LLM. Button-driven actions shouldn't depend on an LLM correctly
+ * guessing intent from wording (Groq occasionally read "checkout my cart"
+ * as a request to view the cart) or on fuzzy catalog search being healthy.
+ * Returns null when the message isn't one of these known commands, so the
+ * caller can fall through to free-text handling.
+ */
+const tryDeterministicIntent = async (userId, userMessage) => {
     const query = userMessage.toLowerCase();
-    // A. Checkout Intent
-    if (query.includes('checkout') || query.includes('buy now') || query.includes('complete order')) {
-        const res = await (0, exports.executeCheckoutCart)(userId);
-        if (res.error) {
-            return { content: `⚠️ ${res.error}`, toolCalled: 'checkoutCart', toolResult: res };
-        }
-        return {
-            content: `🎉 Excellent! Your checkout is complete. I've placed **Order #${res.orderId}** for a total of **$${res.total}**. Your items are prepared for shipping!`,
-            toolCalled: 'checkoutCart',
-            toolResult: res
-        };
-    }
-    // B1. Explicit "product ID <n>" Add Intent (sent by the frontend's Add/Buy buttons,
-    // e.g. "Add 1x of product ID 9 to my cart"). Match on the literal ID instead of a
-    // fuzzy catalog search so this never depends on embeddings/text search being healthy,
-    // and always resolves definitively instead of silently falling through to View Cart.
+    // Explicit "product ID <n>" Add Intent (sent by the frontend's Add/Buy buttons)
     const productIdMatch = query.match(/product\s*id\s*(\d+)/i);
     if (productIdMatch) {
         const productId = parseInt(productIdMatch[1], 10);
@@ -404,6 +399,29 @@ const executeMockAgent = async (userId, userMessage) => {
             toolResult: res
         };
     }
+    // Explicit Checkout Intent (sent by the frontend's checkout buttons).
+    // Matched only at the start of the message so a genuine question like
+    // "what happens after I checkout?" still goes to the LLM instead of
+    // triggering a real purchase.
+    if (/^(checkout|buy now|complete order)\b/.test(query)) {
+        const res = await (0, exports.executeCheckoutCart)(userId);
+        if (res.error) {
+            return { content: `⚠️ ${res.error}`, toolCalled: 'checkoutCart', toolResult: res };
+        }
+        return {
+            content: `🎉 Excellent! Your checkout is complete. I've placed **Order #${res.orderId}** for a total of **$${res.total}**. Your items are prepared for shipping!`,
+            toolCalled: 'checkoutCart',
+            toolResult: res
+        };
+    }
+    return null;
+};
+exports.tryDeterministicIntent = tryDeterministicIntent;
+const executeMockAgent = async (userId, userMessage) => {
+    const query = userMessage.toLowerCase();
+    const deterministic = await (0, exports.tryDeterministicIntent)(userId, userMessage);
+    if (deterministic)
+        return deterministic;
     // B2. Free-text Add to Cart Intent (e.g. "add a laptop to my cart")
     const addMatch = query.match(/(?:add|put|buy)\s+(?:to\s+cart\s+)?(?:a\s+|the\s+)?([a-zA-Z0-9\s"'\-]+?)(?:\s+(?:to|in)\s+(?:my\s+|the\s+)?(?:cart|bag))?$/i);
     if (addMatch) {
@@ -460,6 +478,11 @@ const executeMockAgent = async (userId, userMessage) => {
 exports.executeMockAgent = executeMockAgent;
 // --- ACTIVE SERVICE ENTRYPOINT ---
 const askAgent = async (userId, message, chatHistory) => {
+    // Known, exact commands from the frontend's own buttons are resolved deterministically
+    // so they never depend on the LLM correctly inferring intent from wording.
+    const deterministic = await (0, exports.tryDeterministicIntent)(userId, message);
+    if (deterministic)
+        return deterministic;
     const GROQ_KEY = process.env.GROQ_API_KEY;
     const GROQ_URL = process.env.GROQ_URL || DEFAULT_GROQ_URL;
     // If no Groq Key, fall back to high-fidelity simulated agent
