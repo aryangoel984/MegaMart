@@ -19,13 +19,7 @@ const searchProducts = async (req, res) => {
             console.warn(`[SEARCH] Embedding unavailable for "${query}" — using text fallback`);
             // Fallback: plain text search if embedding API is down / rate-limited
             const products = await db_1.default.product.findMany({
-                where: {
-                    OR: [
-                        { name: { contains: query, mode: 'insensitive' } },
-                        { description: { contains: query, mode: 'insensitive' } },
-                        { category: { contains: query, mode: 'insensitive' } },
-                    ],
-                },
+                where: (0, aiService_1.buildKeywordFallbackWhere)(query),
                 take: 5,
             });
             console.log(`[SEARCH] Text fallback returned ${products.length} products`);

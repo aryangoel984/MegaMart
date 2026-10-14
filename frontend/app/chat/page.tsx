@@ -222,7 +222,7 @@ export default function ChatPage() {
                 <Sparkles className="w-3 h-3 text-purple-600 animate-pulse" /> AI Agent
               </span>
             </h1>
-            <p className="text-xs text-gray-500 font-medium mt-0.5">Powered by Groq High-Speed Qwen 3.6</p>
+            <p className="text-xs text-gray-500 font-medium mt-0.5">Powered by Groq High-Speed GPT-OSS 120B</p>
           </div>
         </div>
 

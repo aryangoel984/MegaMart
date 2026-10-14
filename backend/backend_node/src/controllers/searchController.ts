@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
-import { generateEmbedding } from '../services/aiService';
+import { generateEmbedding, buildKeywordFallbackWhere } from '../services/aiService';
 
 export const searchProducts = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,13 +17,7 @@ export const searchProducts = async (req: Request, res: Response): Promise<void>
       console.warn(`[SEARCH] Embedding unavailable for "${query}" — using text fallback`);
       // Fallback: plain text search if embedding API is down / rate-limited
       const products = await prisma.product.findMany({
-        where: {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { description: { contains: query, mode: 'insensitive' } },
-            { category: { contains: query, mode: 'insensitive' } },
-          ],
-        },
+        where: buildKeywordFallbackWhere(query),
         take: 5,
       });
       console.log(`[SEARCH] Text fallback returned ${products.length} products`);

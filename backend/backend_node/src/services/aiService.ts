@@ -11,6 +11,39 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const vectorNorm = (vector: number[]) =>
   Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 
+const STOPWORDS = new Set(['the', 'a', 'an', 'for', 'and', 'or', 'of', 'to', 'me', 'my', 'show', 'find', 'some']);
+
+/**
+ * Builds a Prisma `where` clause that matches products on ANY significant word
+ * in the query, rather than requiring the whole phrase as a literal substring.
+ * Used when the embedding service is unavailable, so natural-language queries
+ * like "comfortable shoes for running" can still surface a "shoes" match.
+ */
+export const buildKeywordFallbackWhere = (query: string) => {
+  const keywords = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 2 && !STOPWORDS.has(word));
+
+  if (keywords.length === 0) {
+    return {
+      OR: [
+        { name: { contains: query, mode: 'insensitive' as const } },
+        { description: { contains: query, mode: 'insensitive' as const } },
+        { category: { contains: query, mode: 'insensitive' as const } },
+      ],
+    };
+  }
+
+  return {
+    OR: keywords.flatMap((word) => [
+      { name: { contains: word, mode: 'insensitive' as const } },
+      { description: { contains: word, mode: 'insensitive' as const } },
+      { category: { contains: word, mode: 'insensitive' as const } },
+    ]),
+  };
+};
+
 /**
  * Converts text (e.g., "coding laptop") into a 384-dim vector via Hugging Face
  * (same model as before: all-MiniLM-L6-v2 — existing product vectors stay valid).
@@ -182,13 +215,7 @@ export const executeSearchCatalog = async (query: string): Promise<any> => {
     if (!queryVector || queryVector.length === 0) {
       // Fallback to text matching if AI embedding service fails
       const products = await prisma.product.findMany({
-        where: {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { description: { contains: query, mode: 'insensitive' } },
-            { category: { contains: query, mode: 'insensitive' } }
-          ]
-        },
+        where: buildKeywordFallbackWhere(query),
         take: 3
       });
       return products.map(p => ({ ...p, similarity: 0.8 }));
@@ -393,8 +420,28 @@ export const executeMockAgent = async (userId: number, userMessage: string): Pro
     };
   }
 
-  // B. Add to Cart Intent
-  const addMatch = query.match(/(?:add|put|buy)\s+(?:to\s+cart\s+)?(?:a\s+|the\s+)?([a-zA-Z0-9\s"'\-]+)/i);
+  // B1. Explicit "product ID <n>" Add Intent (sent by the frontend's Add/Buy buttons,
+  // e.g. "Add 1x of product ID 9 to my cart"). Match on the literal ID instead of a
+  // fuzzy catalog search so this never depends on embeddings/text search being healthy,
+  // and always resolves definitively instead of silently falling through to View Cart.
+  const productIdMatch = query.match(/product\s*id\s*(\d+)/i);
+  if (productIdMatch) {
+    const productId = parseInt(productIdMatch[1], 10);
+    const qtyMatch = query.match(/(\d+)\s*x\b/i);
+    const quantity = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+    const res = await executeAddToCart(userId, productId, quantity);
+    if (res.error) {
+      return { content: `⚠️ ${res.error}`, toolCalled: 'addToCart', toolResult: res };
+    }
+    return {
+      content: `🛒 Added ${quantity}x **${res.addedProduct.name}** ($${res.addedProduct.price}) to your cart. Your updated total is **$${res.cartTotal}**.`,
+      toolCalled: 'addToCart',
+      toolResult: res
+    };
+  }
+
+  // B2. Free-text Add to Cart Intent (e.g. "add a laptop to my cart")
+  const addMatch = query.match(/(?:add|put|buy)\s+(?:to\s+cart\s+)?(?:a\s+|the\s+)?([a-zA-Z0-9\s"'\-]+?)(?:\s+(?:to|in)\s+(?:my\s+|the\s+)?(?:cart|bag))?$/i);
   if (addMatch) {
     const searchName = addMatch[1].trim();
     // Find item
@@ -411,6 +458,12 @@ export const executeMockAgent = async (userId: number, userMessage: string): Pro
         toolResult: res
       };
     }
+    // Resolve definitively here instead of falling through to View Cart below,
+    // which previously masked failed adds with a misleading "cart is empty" message.
+    return {
+      content: `I couldn't find "${searchName}" in our catalog. Can you try describing it differently?`,
+      products: []
+    };
   }
 
   // C. View Cart Intent
@@ -483,7 +536,7 @@ RULES:
     const response = await axios.post(
       GROQ_URL,
       {
-        model: 'qwen/qwen3.6-27b',
+        model: 'openai/gpt-oss-120b',
         messages: apiHistory,
         tools,
         tool_choice: 'auto'
