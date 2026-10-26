@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/utils/api';
-import { ArrowLeft, Package, ShoppingBag, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Package, ShoppingBag, Loader2, Sparkles, ChevronRight } from 'lucide-react';
 
 interface OrderItem {
     id: number;
@@ -114,9 +114,10 @@ export default function OrdersPage() {
                         </div>
                     ) : (
                         orders.map((order) => (
-                            <div 
-                                key={order.id} 
-                                className="bg-white rounded-2xl border border-gray-200/80 overflow-hidden shadow-sm hover:shadow-md transition duration-300"
+                            <button
+                                key={order.id}
+                                onClick={() => router.push(`/orders/${order.id}`)}
+                                className="w-full text-left bg-white rounded-2xl border border-gray-200/80 overflow-hidden shadow-sm hover:shadow-md transition duration-300"
                             >
                                 {/* Order Header Details */}
                                 <div className="bg-gray-50/50 px-6 py-5 flex flex-wrap justify-between items-center border-b border-gray-200/60 gap-4">
@@ -129,33 +130,22 @@ export default function OrdersPage() {
                                             <p className="font-extrabold text-gray-900 text-sm"># {order.id}</p>
                                         </div>
                                     </div>
-                                    
+
                                     <div>
                                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Date Placed</p>
                                         <p className="font-bold text-gray-900 text-sm">{new Date(order.createdAt).toLocaleDateString()}</p>
                                     </div>
-                                    
+
                                     <div>
                                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total Amount</p>
                                         <p className="font-black text-green-600 text-base">${Number(order.totalAmount).toFixed(2)}</p>
                                     </div>
-                                    
-                                    <div>
-                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                                            order.status === 'COMPLETED' 
-                                                ? 'bg-green-50 text-green-700 border border-green-100' 
-                                                : 'bg-amber-50 text-amber-700 border border-amber-100'
-                                        }`}>
-                                            {order.status === 'COMPLETED' ? (
-                                                <>
-                                                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Completed
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping"></span> Pending
-                                                </>
-                                            )}
+
+                                    <div className="flex items-center gap-3">
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-green-50 text-green-700 border border-green-100">
+                                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> {order.status === 'COMPLETED' ? 'Completed' : order.status}
                                         </span>
+                                        <ChevronRight className="w-4 h-4 text-gray-400" />
                                     </div>
                                 </div>
 
@@ -187,7 +177,7 @@ export default function OrdersPage() {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </button>
                         ))
                     )}
                 </div>

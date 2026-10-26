@@ -16,6 +16,8 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+
     // 1. Fetch User's Past Orders (Complex Query)
     // We need the products inside the orders
     const orders = await prisma.order.findMany({
@@ -61,8 +63,9 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     // 4. Return Final Dashboard Data
+    const greetingName = user?.name ? `, ${user.name}` : '';
     res.json({
-      message: `Welcome back!`,
+      message: orders.length > 0 ? `Welcome back${greetingName}!` : `Welcome${greetingName}!`,
       pastOrdersCount: orders.length,
       aiRecommendations: recommendedProducts.map((p: any) => ({
         id: p.id,
