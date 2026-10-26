@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import api from '@/utils/api';
-import { 
-  ShoppingCart, ArrowLeft, Loader2, ShoppingBag, Zap, 
-  RefreshCw, Sparkles, Plus, Minus, Check, Star, ShieldCheck, Truck, Store
+import * as cartApi from '@/utils/cart';
+import { cartErrorMessage, type Cart } from '@/utils/cart';
+import {
+  ShoppingCart, ArrowLeft, Loader2, ShoppingBag, Zap,
+  RefreshCw, Sparkles, Plus, Minus, Check, Star, ShieldCheck, Truck, Store, Trash2, AlertTriangle
 } from 'lucide-react';
 
 interface ProductDetail {
@@ -32,20 +34,6 @@ interface ProductDetail {
   rating: number;
 }
 
-interface CartItem {
-  id: number;
-  name: string;
-  price: string;
-  imageUrl?: string;
-  quantity: number;
-  subtotal: number;
-}
-
-interface Cart {
-  items: CartItem[];
-  total: number;
-}
-
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -58,10 +46,13 @@ export default function ProductDetailPage() {
   const [addingToCart, setAddingToCart] = useState(false);
 
   // Cart Sidebar state
-  const [cart, setCart] = useState<Cart>({ items: [], total: 0 });
+  const [cart, setCart] = useState<Cart>({ items: [], subtotal: 0 });
   const [cartOpen, setCartOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [buyNowLoading, setBuyNowLoading] = useState(false);
+  const [mutatingProductId, setMutatingProductId] = useState<number | null>(null);
+  const [cartError, setCartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (productId) {
@@ -87,23 +78,7 @@ export default function ProductDetailPage() {
 
     try {
       setSyncing(true);
-      const res = await api.get('/orders');
-      const pending = res.data.find((o: any) => o.status === 'PENDING');
-      if (pending) {
-        setCart({
-          items: pending.items.map((i: any) => ({
-            id: i.product.id,
-            name: i.product.name,
-            price: i.product.price,
-            imageUrl: i.product.imageUrl,
-            quantity: i.quantity,
-            subtotal: Number(i.product.price) * i.quantity
-          })),
-          total: Number(pending.totalAmount)
-        });
-      } else {
-        setCart({ items: [], total: 0 });
-      }
+      setCart(await cartApi.getCart());
     } catch (err) {
       console.error('Failed to sync cart:', err);
     } finally {
@@ -120,34 +95,44 @@ export default function ProductDetailPage() {
     }
 
     if (!product) return;
-    if (product.stock < quantity) {
-      alert('Sorry, not enough items in stock.');
-      return;
-    }
 
+    setCartError(null);
     setAddingToCart(true);
     try {
-      // Direct API cart mutation endpoint via AI Concierge fallback / orders controller
-      // Let's call /api/orders directly since it handles cart creation!
-      // In the cart system, the orders API POST cart items:
-      // But wait! In orderController.ts, order POST handles IMMEDIATE completed order checkout.
-      // So to add to the PENDING cart, we should call the chat concierge mock service
-      // using: "Add product ID X to my cart" with custom quantity!
-      // This is perfectly synced and triggers the correct database transaction.
-      // Let's also send it as custom message.
-      await api.post('/chat', {
-        message: `Add ${quantity}x of product ID ${product.id} to my cart`
-      });
-
-      // Fetch the updated cart state
-      await fetchCart();
-      // Slide open the cart drawer!
+      setCart(await cartApi.addItem(product.id, quantity));
       setCartOpen(true);
     } catch (err) {
       console.error('Failed to add to cart:', err);
-      alert('Could not add item to cart.');
+      setCartError(cartErrorMessage(err, 'Could not add item to cart.'));
+      setCartOpen(true);
     } finally {
       setAddingToCart(false);
+    }
+  };
+
+  // Buy Now checks out exactly this product/quantity — it never touches,
+  // or force-purchases, whatever else is sitting in the stored cart
+  // (previously it added to the cart then checked out everything in it).
+  const handleBuyNow = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login to purchase items!');
+      router.push('/login');
+      return;
+    }
+    if (!product) return;
+
+    setCartError(null);
+    setBuyNowLoading(true);
+    try {
+      await cartApi.checkout([{ productId: product.id, quantity }]);
+      alert('Order placed successfully! Thank you.');
+      router.push('/orders');
+    } catch (err) {
+      console.error('Buy Now failed:', err);
+      setCartError(cartErrorMessage(err, 'Checkout failed.'));
+    } finally {
+      setBuyNowLoading(false);
     }
   };
 
@@ -158,21 +143,55 @@ export default function ProductDetailPage() {
       return;
     }
 
+    setCartError(null);
     setCheckoutLoading(true);
     try {
-      // If items aren't in the cart, add them first!
-      await handleAddToCart();
-      // Execute checkout
-      await api.post('/chat', { message: 'checkout my cart' });
+      await cartApi.checkout();
       alert('Order Placed Successfully! Thank you.');
-      fetchCart();
+      await fetchCart();
       setCartOpen(false);
-      router.push('/dashboard');
+      router.push('/orders');
     } catch (err) {
       console.error('Checkout failed:', err);
-      alert('Checkout transaction failed');
+      setCartError(cartErrorMessage(err, 'Checkout transaction failed.'));
     } finally {
       setCheckoutLoading(false);
+    }
+  };
+
+  const handleUpdateQuantity = async (productId: number, nextQuantity: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.updateItem(productId, nextQuantity));
+    } catch (err) {
+      console.error('Failed to update quantity:', err);
+      setCartError(cartErrorMessage(err, 'Could not update quantity.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleRemoveItem = async (productId: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.removeItem(productId));
+    } catch (err) {
+      console.error('Failed to remove item:', err);
+      setCartError(cartErrorMessage(err, 'Could not remove item.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleClearCart = async () => {
+    setCartError(null);
+    try {
+      setCart(await cartApi.clearCart());
+    } catch (err) {
+      console.error('Failed to clear cart:', err);
+      setCartError(cartErrorMessage(err, 'Could not clear cart.'));
     }
   };
 
@@ -343,6 +362,13 @@ export default function ProductDetailPage() {
                         </div>
                       </div>
 
+                      {cartError && (
+                        <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-sm font-semibold rounded-lg p-3">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>{cartError}</span>
+                        </div>
+                      )}
+
                       {/* Buy CTAs */}
                       <div className="grid grid-cols-2 gap-4 pt-2">
                         <button
@@ -353,11 +379,11 @@ export default function ProductDetailPage() {
                           {addingToCart ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />} Add to Cart
                         </button>
                         <button
-                          onClick={handleCheckout}
-                          disabled={checkoutLoading}
+                          onClick={handleBuyNow}
+                          disabled={buyNowLoading}
                           className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-2 shadow-md shadow-blue-500/10 active:scale-[0.98]"
                         >
-                          {checkoutLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-4 h-4 text-amber-300 animate-pulse" />} Buy Now
+                          {buyNowLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-4 h-4 text-amber-300 animate-pulse" />} Buy Now
                         </button>
                       </div>
                     </div>
@@ -483,10 +509,27 @@ export default function ProductDetailPage() {
               <div className="flex items-center gap-2">
                 {syncing && <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />}
                 <span className="bg-gray-200 text-gray-700 text-xs px-2.5 py-1 rounded-full font-bold">
-                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} Items
+                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} {cart.items.reduce((sum, i) => sum + i.quantity, 0) === 1 ? 'Item' : 'Items'}
                 </span>
+                {cart.items.length > 0 && (
+                  <button
+                    onClick={handleClearCart}
+                    className="text-xs font-semibold text-rose-500 hover:text-rose-600 px-2 py-1"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
+
+            {cartError && (
+              <div className="px-5 pt-4">
+                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg p-3">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{cartError}</span>
+                </div>
+              </div>
+            )}
 
             <div className="flex-grow overflow-y-auto p-5 space-y-4">
               {cart.items.length === 0 ? (
@@ -499,29 +542,56 @@ export default function ProductDetailPage() {
                 </div>
               ) : (
                 cart.items.map((item) => (
-                  <div 
-                    key={item.id}
+                  <div
+                    key={item.productId}
                     className="flex items-center gap-4 bg-gray-50/60 border border-gray-200/60 p-3.5 rounded-xl transition"
                   >
                     <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex items-center justify-center border border-gray-200 shrink-0 shadow-sm">
                       {item.imageUrl ? (
-                        <img 
-                          src={item.imageUrl} 
-                          alt={item.name} 
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
                           className="w-full h-full object-cover"
                         />
                       ) : (
                         <ShoppingBag className="w-6 h-6 text-gray-400" />
                       )}
                     </div>
-                    
+
                     <div className="flex-grow min-w-0">
                       <h4 className="font-bold text-gray-800 text-sm leading-tight truncate mb-1">{item.name}</h4>
-                      <div className="flex justify-between items-center text-xs text-gray-500">
-                        <span>Qty: {item.quantity}</span>
-                        <span className="font-semibold text-gray-700">${item.price}</span>
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center border border-gray-200 bg-white rounded-lg">
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
+                            disabled={mutatingProductId === item.productId}
+                            className="p-1 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-7 text-center text-xs font-bold text-gray-800">
+                            {mutatingProductId === item.productId ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
+                          </span>
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
+                            disabled={mutatingProductId === item.productId || item.quantity >= item.stock}
+                            className="p-1 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <span className="font-semibold text-gray-700 text-sm">${item.lineTotal.toFixed(2)}</span>
                       </div>
                     </div>
+
+                    <button
+                      onClick={() => handleRemoveItem(item.productId)}
+                      disabled={mutatingProductId === item.productId}
+                      className="p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0"
+                      aria-label={`Remove ${item.name} from cart`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))
               )}
@@ -531,9 +601,9 @@ export default function ProductDetailPage() {
               <div className="p-5 border-t border-gray-100 bg-gray-50/50 space-y-4">
                 <div className="flex justify-between items-center text-gray-600 text-sm">
                   <span>Cart Total:</span>
-                  <span className="text-2xl font-black text-green-600">${cart.total.toFixed(2)}</span>
+                  <span className="text-2xl font-black text-green-600">${cart.subtotal.toFixed(2)}</span>
                 </div>
-                
+
                 <button
                   onClick={handleCheckout}
                   disabled={checkoutLoading}

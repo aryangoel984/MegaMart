@@ -3,9 +3,11 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/utils/api';
-import { 
-  Send, Sparkles, ShoppingCart, User, ArrowLeft, Loader2, 
-  ShoppingBag, Trash2, CheckCircle2, ChevronRight, Zap, RefreshCw 
+import * as cartApi from '@/utils/cart';
+import { cartErrorMessage, type Cart } from '@/utils/cart';
+import {
+  Send, Sparkles, ShoppingCart, User, ArrowLeft, Loader2,
+  ShoppingBag, Trash2, CheckCircle2, ChevronRight, Zap, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 interface Product {
@@ -26,20 +28,6 @@ interface Message {
   toolCalled?: string;
 }
 
-interface CartItem {
-  id: number;
-  name: string;
-  price: string;
-  imageUrl?: string;
-  quantity: number;
-  subtotal: number;
-}
-
-interface Cart {
-  items: CartItem[];
-  total: number;
-}
-
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -49,9 +37,11 @@ export default function ChatPage() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [cart, setCart] = useState<Cart>({ items: [], total: 0 });
+  const [cart, setCart] = useState<Cart>({ items: [], subtotal: 0 });
   const [cartOpen, setCartOpen] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
+  const [mutatingProductId, setMutatingProductId] = useState<number | null>(null);
   const router = useRouter();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -74,24 +64,7 @@ export default function ChatPage() {
   const fetchCart = async () => {
     try {
       setSyncing(true);
-      const res = await api.get('/orders');
-      // Look for a PENDING order to represent the cart
-      const pending = res.data.find((o: any) => o.status === 'PENDING');
-      if (pending) {
-        setCart({
-          items: pending.items.map((i: any) => ({
-            id: i.product.id,
-            name: i.product.name,
-            price: i.product.price,
-            imageUrl: i.product.imageUrl,
-            quantity: i.quantity,
-            subtotal: Number(i.product.price) * i.quantity
-          })),
-          total: Number(pending.totalAmount)
-        });
-      } else {
-        setCart({ items: [], total: 0 });
-      }
+      setCart(await cartApi.getCart());
     } catch (err) {
       console.error('Failed to sync cart:', err);
     } finally {
@@ -150,50 +123,77 @@ export default function ChatPage() {
     handleSend(undefined, cmd);
   };
 
-  // 5. Direct Product Actions inside AI Cards
+  // 5. Direct Product Actions inside AI Cards — these call the cart REST API
+  // directly rather than sending a chat message, so a button click never
+  // depends on the LLM (or the mock intent parser) correctly reading intent.
   const handleAddProduct = async (productId: number) => {
+    setCartError(null);
     setLoading(true);
     try {
-      const response = await api.post('/chat', {
-        message: `Add product ID ${productId} to my cart`,
-        history: messages.map(m => ({ role: m.role, content: m.content }))
-      });
-
+      const updatedCart = await cartApi.addItem(productId, 1);
+      setCart(updatedCart);
+      const added = updatedCart.items.find((i) => i.productId === productId);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: response.data.content,
-        products: response.data.products,
-        toolCalled: response.data.toolCalled
+        content: added ? `🛒 Added **${added.name}** to your cart. Current total: **$${updatedCart.subtotal.toFixed(2)}**.` : '🛒 Added to your cart.'
       }]);
-
-      fetchCart();
     } catch (err) {
       console.error('Failed to add product:', err);
-      alert('Failed to add item to cart');
+      setCartError(cartErrorMessage(err, 'Failed to add item to cart.'));
     } finally {
       setLoading(false);
     }
   };
 
+  const handleRemoveFromCart = async (productId: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.removeItem(productId));
+    } catch (err) {
+      console.error('Failed to remove item:', err);
+      setCartError(cartErrorMessage(err, 'Could not remove item.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleUpdateQuantity = async (productId: number, quantity: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.updateItem(productId, quantity));
+    } catch (err) {
+      console.error('Failed to update quantity:', err);
+      setCartError(cartErrorMessage(err, 'Could not update quantity.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleClearCart = async () => {
+    setCartError(null);
+    try {
+      setCart(await cartApi.clearCart());
+    } catch (err) {
+      console.error('Failed to clear cart:', err);
+      setCartError(cartErrorMessage(err, 'Could not clear cart.'));
+    }
+  };
+
   const handleCheckout = async () => {
+    setCartError(null);
     setLoading(true);
     try {
-      const response = await api.post('/chat', {
-        message: `checkout my cart`,
-        history: messages.map(m => ({ role: m.role, content: m.content }))
-      });
-
+      const order = await cartApi.checkout();
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: response.data.content,
-        products: response.data.products,
-        toolCalled: response.data.toolCalled
+        content: `🎉 Checkout complete! I've placed **Order #${order.orderId}** for a total of **$${order.total}**.`
       }]);
-
-      fetchCart();
+      await fetchCart();
     } catch (err) {
       console.error('Checkout failed:', err);
-      alert('Checkout failed');
+      setCartError(cartErrorMessage(err, 'Checkout failed.'));
     } finally {
       setLoading(false);
     }
@@ -413,10 +413,27 @@ export default function ChatPage() {
               <div className="flex items-center gap-2">
                 {syncing && <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />}
                 <span className="bg-gray-200 text-gray-700 text-xs px-2.5 py-1 rounded-full font-bold">
-                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} Items
+                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} {cart.items.reduce((sum, i) => sum + i.quantity, 0) === 1 ? 'Item' : 'Items'}
                 </span>
+                {cart.items.length > 0 && (
+                  <button
+                    onClick={handleClearCart}
+                    className="text-xs font-semibold text-rose-500 hover:text-rose-600 px-2 py-1"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
+
+            {cartError && (
+              <div className="px-5 pt-4">
+                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg p-3">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{cartError}</span>
+                </div>
+              </div>
+            )}
 
             {/* Cart Items Area */}
             <div className="flex-grow overflow-y-auto p-5 space-y-4">
@@ -430,29 +447,56 @@ export default function ChatPage() {
                 </div>
               ) : (
                 cart.items.map((item) => (
-                  <div 
-                    key={item.id}
+                  <div
+                    key={item.productId}
                     className="flex items-center gap-4 bg-gray-50/60 border border-gray-200/60 p-3.5 rounded-xl transition"
                   >
                     <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex items-center justify-center border border-gray-200 shrink-0 shadow-sm">
                       {item.imageUrl ? (
-                        <img 
-                          src={item.imageUrl} 
-                          alt={item.name} 
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
                           className="w-full h-full object-cover"
                         />
                       ) : (
                         <ShoppingBag className="w-6 h-6 text-gray-400" />
                       )}
                     </div>
-                    
+
                     <div className="flex-grow min-w-0">
                       <h4 className="font-bold text-gray-800 text-sm leading-tight truncate mb-1">{item.name}</h4>
-                      <div className="flex justify-between items-center text-xs text-gray-500">
-                        <span>Qty: {item.quantity}</span>
-                        <span className="font-semibold text-gray-700">${item.price}</span>
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center border border-gray-200 bg-white rounded-lg">
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
+                            disabled={mutatingProductId === item.productId}
+                            className="px-1.5 py-0.5 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40 text-xs font-bold"
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center text-xs font-bold text-gray-800">
+                            {mutatingProductId === item.productId ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
+                          </span>
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
+                            disabled={mutatingProductId === item.productId || item.quantity >= item.stock}
+                            className="px-1.5 py-0.5 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40 text-xs font-bold"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <span className="font-semibold text-gray-700 text-sm">${item.lineTotal.toFixed(2)}</span>
                       </div>
                     </div>
+
+                    <button
+                      onClick={() => handleRemoveFromCart(item.productId)}
+                      disabled={mutatingProductId === item.productId}
+                      className="p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0"
+                      aria-label={`Remove ${item.name} from cart`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))
               )}
@@ -463,9 +507,9 @@ export default function ChatPage() {
               <div className="p-5 border-t border-gray-100 bg-gray-50/50 space-y-4">
                 <div className="flex justify-between items-center text-gray-600 text-sm">
                   <span>Cart Total:</span>
-                  <span className="text-2xl font-black text-green-600">${cart.total.toFixed(2)}</span>
+                  <span className="text-2xl font-black text-green-600">${cart.subtotal.toFixed(2)}</span>
                 </div>
-                
+
                 <button
                   onClick={handleCheckout}
                   disabled={loading}
