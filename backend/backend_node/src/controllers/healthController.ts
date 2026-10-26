@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
+import { generateEmbedding } from '../services/embeddingService';
 
 export const getHealth = async (_req: Request, res: Response): Promise<void> => {
   let db: 'ok' | 'error' = 'ok';
@@ -15,6 +16,12 @@ export const getHealth = async (_req: Request, res: Response): Promise<void> => 
   // is configured, since the app degrades to a working mock agent without one.
   const llm = process.env.GROQ_API_KEY ? 'ok' : 'mock';
 
-  const status = db === 'ok' ? 200 : 503;
-  res.status(status).json({ db, llm, uptime: process.uptime() });
+  // Embeddings run locally now (no external API, no billing), so an actual
+  // readiness check is cheap and worth doing — this is also what caught
+  // the previous silent failure (the HF Inference key ran out of credits
+  // and every search quietly degraded to keyword matching with no error).
+  const embeddings = (await generateEmbedding('healthcheck')).length > 0 ? 'ok' : 'error';
+
+  const status = db === 'ok' && embeddings === 'ok' ? 200 : 503;
+  res.status(status).json({ db, llm, embeddings, uptime: process.uptime() });
 };

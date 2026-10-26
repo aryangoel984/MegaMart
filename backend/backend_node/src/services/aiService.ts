@@ -1,128 +1,14 @@
 import axios from 'axios';
-import prisma from '../config/db';
 import * as cartService from './cartService';
 import { CartError } from './cartService';
 import { checkout as checkoutService } from './checkoutService';
 import { randomUUID } from 'crypto';
+import { generateEmbedding } from './embeddingService';
+import { searchProducts } from './searchService';
 
-const DEFAULT_HF_API_URL =
-  'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
+export { generateEmbedding };
+
 const DEFAULT_GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const EMBED_MAX_RETRIES = 3;
-const EMBED_RETRY_DELAY_MS = 2000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const vectorNorm = (vector: number[]) =>
-  Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
-
-const STOPWORDS = new Set(['the', 'a', 'an', 'for', 'and', 'or', 'of', 'to', 'me', 'my', 'show', 'find', 'some']);
-
-/**
- * Builds a Prisma `where` clause that matches products on ANY significant word
- * in the query, rather than requiring the whole phrase as a literal substring.
- * Used when the embedding service is unavailable, so natural-language queries
- * like "comfortable shoes for running" can still surface a "shoes" match.
- */
-export const buildKeywordFallbackWhere = (query: string) => {
-  const keywords = query
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length > 2 && !STOPWORDS.has(word));
-
-  if (keywords.length === 0) {
-    return {
-      OR: [
-        { name: { contains: query, mode: 'insensitive' as const } },
-        { description: { contains: query, mode: 'insensitive' as const } },
-        { category: { contains: query, mode: 'insensitive' as const } },
-      ],
-    };
-  }
-
-  return {
-    OR: keywords.flatMap((word) => [
-      { name: { contains: word, mode: 'insensitive' as const } },
-      { description: { contains: word, mode: 'insensitive' as const } },
-      { category: { contains: word, mode: 'insensitive' as const } },
-    ]),
-  };
-};
-
-/**
- * Converts text (e.g., "coding laptop") into a 384-dim vector via Hugging Face
- * (same model as before: all-MiniLM-L6-v2 — existing product vectors stay valid).
- */
-export const generateEmbedding = async (text: string): Promise<number[]> => {
-  const HF_API_KEY = process.env.HF_API_KEY;
-  const HF_API_URL = process.env.HF_API_URL || DEFAULT_HF_API_URL;
-
-  if (!HF_API_KEY) {
-    console.error('[HF EMBEDDING] FAILED: HF_API_KEY is not set');
-    return [];
-  }
-
-  for (let attempt = 1; attempt <= EMBED_MAX_RETRIES; attempt++) {
-    const startedAt = Date.now();
-    console.log('\n[HF EMBEDDING] Sending request');
-    console.log('  provider: Hugging Face Inference');
-    console.log('  model: sentence-transformers/all-MiniLM-L6-v2');
-    console.log(`  input: ${JSON.stringify(text)}`);
-    console.log(`  input length: ${text.length} characters`);
-    console.log(`  attempt: ${attempt}/${EMBED_MAX_RETRIES}`);
-
-    try {
-      const response = await axios.post(
-        HF_API_URL,
-        { inputs: text },
-        {
-          headers: {
-            Authorization: `Bearer ${HF_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 60000,
-        }
-      );
-
-      const data = response.data;
-      let vector: number[] | null = null;
-
-      // Single string → flat [384]; sometimes wrapped as [[384]]
-      if (Array.isArray(data) && Array.isArray(data[0])) {
-        vector = data[0] as number[];
-      }
-      if (!vector && Array.isArray(data) && typeof data[0] === 'number') {
-        vector = data as number[];
-      }
-
-      if (!vector) {
-        console.error('[HF EMBEDDING] FAILED: unexpected response shape:', data);
-        return [];
-      }
-
-      console.log('[HF EMBEDDING] SUCCESS: Hugging Face returned a vector');
-      console.log(`  HTTP status: ${response.status}`);
-      console.log(`  duration: ${Date.now() - startedAt}ms`);
-      console.log(`  dimensions: ${vector.length} (expected 384)`);
-      console.log(`  vector norm: ${vectorNorm(vector).toFixed(6)}`);
-      console.log(`  sample values: [${vector.slice(0, 5).map((v) => v.toFixed(6)).join(', ')}]`);
-      console.log(`  validation: ${vector.length === 384 ? 'PASS' : 'FAIL'}\n`);
-      return vector.length === 384 ? vector : [];
-    } catch (error: any) {
-      const status = error.response?.status;
-      const isRetryable = status === 503 || status === 504 || !status;
-      console.error(
-        `[HF EMBEDDING] FAILED after ${Date.now() - startedAt}ms (HTTP ${status || 'network error'}):`,
-        error.response?.data || error.message
-      );
-      if (isRetryable && attempt < EMBED_MAX_RETRIES) {
-        await sleep(EMBED_RETRY_DELAY_MS * attempt);
-        continue;
-      }
-      return [];
-    }
-  }
-  return [];
-};
 
 /**
  * Recommendation vector from past purchase categories (or null for cold start).
@@ -134,10 +20,10 @@ export const getRecommendations = async (
 ): Promise<number[] | null> => {
   try {
     if (!pastPurchases || pastPurchases.length === 0) {
-      console.log('[HF RECOMMENDATION] Cold start: no past purchases; using latest products');
+      console.log('[RECOMMENDATION] Cold start: no past purchases; using latest products');
       return null;
     }
-    console.log(`[HF RECOMMENDATION] Embedding ${pastPurchases.length} purchase categories`);
+    console.log(`[RECOMMENDATION] Embedding ${pastPurchases.length} purchase categories`);
     const vector = await generateEmbedding(pastPurchases.join(' '));
     return vector.length > 0 ? vector : null;
   } catch (error: any) {
@@ -254,26 +140,7 @@ const tools = [
 
 export const executeSearchCatalog = async (query: string): Promise<any> => {
   try {
-    // 1. Use the existing semantic vector generator
-    const queryVector = await generateEmbedding(query);
-    if (!queryVector || queryVector.length === 0) {
-      // Fallback to text matching if AI embedding service fails
-      const products = await prisma.product.findMany({
-        where: buildKeywordFallbackWhere(query),
-        take: 3
-      });
-      return products.map(p => ({ ...p, similarity: 0.8 }));
-    }
-
-    const vectorString = JSON.stringify(queryVector);
-    const products: any = await prisma.$queryRaw`
-      SELECT id, name, description, price, "imageUrl", category, stock,
-      1 - ("descriptionVector" <=> ${vectorString}::vector) as similarity
-      FROM "Product"
-      ORDER BY similarity DESC
-      LIMIT 3;
-    `;
-    return products;
+    return await searchProducts(query, 3);
   } catch (error) {
     console.error('⚠️ Search catalog tool error:', error);
     return [];
