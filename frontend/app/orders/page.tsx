@@ -73,6 +73,7 @@ export default function OrdersPage() {
                 <div className="flex items-center gap-4">
                     <button 
                         onClick={() => router.push('/dashboard')}
+                        aria-label="Back to dashboard"
                         className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />

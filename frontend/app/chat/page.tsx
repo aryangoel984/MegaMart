@@ -211,6 +211,7 @@ export default function ChatPage() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => router.push('/dashboard')}
+            aria-label="Back to dashboard"
             className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -253,7 +254,12 @@ export default function ChatPage() {
         <div className="flex-grow flex flex-col h-full justify-between relative bg-gray-50/50 overflow-hidden">
           
           {/* Scrollable Thread */}
-          <div className="flex-grow overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+          <div
+            role="log"
+            aria-live="polite"
+            aria-label="Conversation with the AI shopping concierge"
+            className="flex-grow overflow-y-auto px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent"
+          >
             {messages.map((msg, index) => (
               <div 
                 key={index}
@@ -393,6 +399,7 @@ export default function ChatPage() {
               <button
                 type="submit"
                 disabled={loading || !input.trim()}
+                aria-label="Send message"
                 className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 text-white font-bold p-4 rounded-xl transition flex items-center justify-center shrink-0 shadow-md shadow-blue-500/10 active:scale-[0.96]"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}

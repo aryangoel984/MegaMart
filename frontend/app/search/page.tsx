@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import api from '@/utils/api';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { ArrowLeft, Search, Loader2, Sparkles, ChevronRight, ShoppingBag } from 'lucide-react';
 
 interface Product {
@@ -29,11 +30,11 @@ export default function SearchPage() {
     setLoading(true);
     try {
       // Call your new AI Search Endpoint
-      const res = await api.get(`/search?q=${query}`);
+      const res = await api.get(`/search?q=${encodeURIComponent(query)}`);
       setResults(res.data);
     } catch (err) {
       console.error(err);
-      alert('Search failed');
+      toast.error('Search failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -51,6 +52,7 @@ export default function SearchPage() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => router.push('/dashboard')}
+            aria-label="Back to dashboard"
             className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

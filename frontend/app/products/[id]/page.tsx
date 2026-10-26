@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import api from '@/utils/api';
 import * as cartApi from '@/utils/cart';
 import { cartErrorMessage, type Cart } from '@/utils/cart';
+import { toast } from 'sonner';
 import {
   ShoppingCart, ArrowLeft, Loader2, ShoppingBag, Zap,
   RefreshCw, Sparkles, Plus, Minus, Check, Star, ShieldCheck, Truck, Store, Trash2, AlertTriangle
@@ -123,8 +124,8 @@ export default function ProductDetailPage() {
     setCartError(null);
     setBuyNowLoading(true);
     try {
-      await cartApi.checkout([{ productId: product.id, quantity }]);
-      alert('Order placed successfully! Thank you.');
+      const order = await cartApi.checkout([{ productId: product.id, quantity }]);
+      toast.success(`Order placed! Order #${order.orderId} for $${order.total}.`);
       router.push('/orders');
     } catch (err) {
       console.error('Buy Now failed:', err);
@@ -144,8 +145,8 @@ export default function ProductDetailPage() {
     setCartError(null);
     setCheckoutLoading(true);
     try {
-      await cartApi.checkout();
-      alert('Order Placed Successfully! Thank you.');
+      const order = await cartApi.checkout();
+      toast.success(`Order placed! Order #${order.orderId} for $${order.total}.`);
       await fetchCart();
       setCartOpen(false);
       router.push('/orders');
@@ -230,6 +231,7 @@ export default function ProductDetailPage() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => router.push('/products')}
+            aria-label="Back to products"
             className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

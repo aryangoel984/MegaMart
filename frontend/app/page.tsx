@@ -48,9 +48,9 @@ export default function Home() {
       </nav>
 
       {/* 2. Hero Section */}
-      <main className="flex-grow flex flex-col items-center justify-center text-center px-4 mt-10 md:mt-20">
+      <div className="flex-grow flex flex-col items-center justify-center text-center px-4 mt-10 md:mt-20">
         <div className="inline-block bg-blue-50 text-blue-600 px-4 py-1.5 rounded-full text-sm font-semibold mb-6">
-          🚀 Powered by Node.js & Python Microservices
+          🚀 Powered by Node.js, pgvector &amp; a tool-using LLM agent
         </div>
         
         <h1 className="text-5xl md:text-7xl font-extrabold text-gray-900 tracking-tight mb-6">
@@ -61,7 +61,7 @@ export default function Home() {
         </h1>
         
         <p className="text-xl text-gray-500 max-w-2xl mb-10">
-          Experience the next generation of e-commerce. Real-time inventory management powered by Node.js, with personalized recommendations driven by Python AI.
+          Experience the next generation of e-commerce. Real-time, race-safe inventory management powered by Node.js and Postgres, with semantic search and a shopping agent driven by an LLM.
         </p>
 
         <div className="flex gap-4">
@@ -105,7 +105,7 @@ export default function Home() {
               🧠
             </div>
             <h3 className="text-lg font-bold text-gray-900">AI Powered</h3>
-            <p className="text-gray-500 mt-2">Integrated Python microservice using FastAPI to provide smart product recommendations.</p>
+            <p className="text-gray-500 mt-2">Semantic product search and a tool-using shopping agent, backed by pgvector embeddings.</p>
           </div>
 
           <div className="p-6 border border-gray-100 rounded-2xl bg-gray-50 hover:border-blue-200 transition">
@@ -116,11 +116,21 @@ export default function Home() {
             <p className="text-gray-500 mt-2">Enterprise-grade security with JWT authentication and Bcrypt password hashing.</p>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* 4. Footer */}
-      <footer className="bg-gray-50 border-t border-gray-100 py-8 text-center text-gray-400 text-sm">
-        <p>&copy; 2025 MegaMart Inc. Built for technical interview demonstration.</p>
+      <footer className="bg-gray-50 border-t border-gray-100 py-8 text-center text-gray-400 text-sm space-y-2">
+        <p>&copy; {new Date().getFullYear()} MegaMart.ai</p>
+        <p>
+          <a
+            href="https://github.com/aryangoel984/MegaMart"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-500 hover:text-gray-900 font-medium transition"
+          >
+            GitHub
+          </a>
+        </p>
       </footer>
     </div>
   );

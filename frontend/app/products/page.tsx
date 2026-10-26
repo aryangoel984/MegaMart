@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import api from '@/utils/api';
+import * as cartApi from '@/utils/cart';
+import { cartErrorMessage, type Cart } from '@/utils/cart';
 import { useRouter } from 'next/navigation';
-import { 
-  ShoppingCart, ArrowLeft, Loader2, ShoppingBag, Zap, 
-  RefreshCw, Sparkles, ChevronRight, CheckCircle2 
+import { toast } from 'sonner';
+import {
+  ShoppingCart, ArrowLeft, Loader2, ShoppingBag, Zap,
+  RefreshCw, Sparkles, ChevronRight, CheckCircle2, Plus, Minus, Trash2, AlertTriangle
 } from 'lucide-react';
 
 interface Product {
@@ -17,27 +20,15 @@ interface Product {
   stock: number;
 }
 
-interface CartItem {
-  id: number;
-  name: string;
-  price: string;
-  imageUrl?: string;
-  quantity: number;
-  subtotal: number;
-}
-
-interface Cart {
-  items: CartItem[];
-  total: number;
-}
-
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cart, setCart] = useState<Cart>({ items: [], total: 0 });
+  const [cart, setCart] = useState<Cart>({ items: [], subtotal: 0 });
   const [cartOpen, setCartOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [mutatingProductId, setMutatingProductId] = useState<number | null>(null);
+  const [cartError, setCartError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -62,24 +53,7 @@ export default function ProductsPage() {
 
     try {
       setSyncing(true);
-      const res = await api.get('/orders');
-      // Look for a PENDING order representing the cart
-      const pending = res.data.find((o: any) => o.status === 'PENDING');
-      if (pending) {
-        setCart({
-          items: pending.items.map((i: any) => ({
-            id: i.product.id,
-            name: i.product.name,
-            price: i.product.price,
-            imageUrl: i.product.imageUrl,
-            quantity: i.quantity,
-            subtotal: Number(i.product.price) * i.quantity
-          })),
-          total: Number(pending.totalAmount)
-        });
-      } else {
-        setCart({ items: [], total: 0 });
-      }
+      setCart(await cartApi.getCart());
     } catch (err) {
       console.error('Failed to sync cart:', err);
     } finally {
@@ -90,27 +64,59 @@ export default function ProductsPage() {
   const handleCheckout = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      router.push('/login');
+      router.push('/login?next=/products');
       return;
     }
 
+    setCartError(null);
     setCheckoutLoading(true);
     try {
-      // Complete checkout by posting to chat fallback or checkout controller
-      // We will call the backend direct /orders post, but wait, the backend orders POST takes cart items and creates a COMPLETED order directly.
-      // In the chat controller, checkoutCart updates the PENDING order status to COMPLETED and decrements stock.
-      // Let's call /api/chat checkoutCart or use a custom transaction.
-      // Since /api/chat is authenticated and maps to the mock/real checkoutCart, let's call /api/chat with "checkout my cart"!
-      // This is extremely safe and reuses our verified transaction pipeline perfectly.
-      await api.post('/chat', { message: 'checkout my cart' });
-      alert('Order Placed Successfully! Inventory updated.');
-      fetchCart();
+      const order = await cartApi.checkout();
+      toast.success(`Order placed! Order #${order.orderId} for $${order.total}.`);
+      await fetchCart();
       setCartOpen(false);
-      router.push('/dashboard');
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Checkout failed');
+      router.push('/orders');
+    } catch (err) {
+      console.error('Checkout failed:', err);
+      setCartError(cartErrorMessage(err, 'Checkout failed'));
     } finally {
       setCheckoutLoading(false);
+    }
+  };
+
+  const handleUpdateQuantity = async (productId: number, quantity: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.updateItem(productId, quantity));
+    } catch (err) {
+      console.error('Failed to update quantity:', err);
+      setCartError(cartErrorMessage(err, 'Could not update quantity.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleRemoveItem = async (productId: number) => {
+    setCartError(null);
+    setMutatingProductId(productId);
+    try {
+      setCart(await cartApi.removeItem(productId));
+    } catch (err) {
+      console.error('Failed to remove item:', err);
+      setCartError(cartErrorMessage(err, 'Could not remove item.'));
+    } finally {
+      setMutatingProductId(null);
+    }
+  };
+
+  const handleClearCart = async () => {
+    setCartError(null);
+    try {
+      setCart(await cartApi.clearCart());
+    } catch (err) {
+      console.error('Failed to clear cart:', err);
+      setCartError(cartErrorMessage(err, 'Could not clear cart.'));
     }
   };
 
@@ -137,6 +143,7 @@ export default function ProductsPage() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => router.push('/dashboard')}
+            aria-label="Back to dashboard"
             className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -237,10 +244,24 @@ export default function ProductsPage() {
               <div className="flex items-center gap-2">
                 {syncing && <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />}
                 <span className="bg-gray-200 text-gray-700 text-xs px-2.5 py-1 rounded-full font-bold">
-                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} Items
+                  {cart.items.reduce((sum, i) => sum + i.quantity, 0)} {cart.items.reduce((sum, i) => sum + i.quantity, 0) === 1 ? 'Item' : 'Items'}
                 </span>
+                {cart.items.length > 0 && (
+                  <button onClick={handleClearCart} className="text-xs font-semibold text-rose-500 hover:text-rose-600 px-2 py-1">
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
+
+            {cartError && (
+              <div className="px-5 pt-4">
+                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg p-3">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{cartError}</span>
+                </div>
+              </div>
+            )}
 
             <div className="flex-grow overflow-y-auto p-5 space-y-4">
               {cart.items.length === 0 ? (
@@ -253,29 +274,56 @@ export default function ProductsPage() {
                 </div>
               ) : (
                 cart.items.map((item) => (
-                  <div 
-                    key={item.id}
+                  <div
+                    key={item.productId}
                     className="flex items-center gap-4 bg-gray-50/60 border border-gray-200/60 p-3.5 rounded-xl transition"
                   >
                     <div className="w-16 h-16 bg-white rounded-lg overflow-hidden flex items-center justify-center border border-gray-200 shrink-0 shadow-sm">
                       {item.imageUrl ? (
-                        <img 
-                          src={item.imageUrl} 
-                          alt={item.name} 
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
                           className="w-full h-full object-cover"
                         />
                       ) : (
                         <ShoppingBag className="w-6 h-6 text-gray-400" />
                       )}
                     </div>
-                    
+
                     <div className="flex-grow min-w-0">
                       <h4 className="font-bold text-gray-800 text-sm leading-tight truncate mb-1">{item.name}</h4>
-                      <div className="flex justify-between items-center text-xs text-gray-500">
-                        <span>Qty: {item.quantity}</span>
-                        <span className="font-semibold text-gray-700">${item.price}</span>
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center border border-gray-200 bg-white rounded-lg">
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
+                            disabled={mutatingProductId === item.productId}
+                            className="p-1 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-7 text-center text-xs font-bold text-gray-800">
+                            {mutatingProductId === item.productId ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : item.quantity}
+                          </span>
+                          <button
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
+                            disabled={mutatingProductId === item.productId || item.quantity >= item.stock}
+                            className="p-1 hover:bg-gray-100 rounded text-gray-600 transition disabled:opacity-40"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <span className="font-semibold text-gray-700 text-sm">${item.lineTotal.toFixed(2)}</span>
                       </div>
                     </div>
+
+                    <button
+                      onClick={() => handleRemoveItem(item.productId)}
+                      disabled={mutatingProductId === item.productId}
+                      className="p-2 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0"
+                      aria-label={`Remove ${item.name} from cart`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))
               )}
@@ -285,9 +333,9 @@ export default function ProductsPage() {
               <div className="p-5 border-t border-gray-100 bg-gray-50/50 space-y-4">
                 <div className="flex justify-between items-center text-gray-600 text-sm">
                   <span>Cart Total:</span>
-                  <span className="text-2xl font-black text-green-600">${cart.total.toFixed(2)}</span>
+                  <span className="text-2xl font-black text-green-600">${cart.subtotal.toFixed(2)}</span>
                 </div>
-                
+
                 <button
                   onClick={handleCheckout}
                   disabled={checkoutLoading}

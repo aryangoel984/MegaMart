@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
+/* Every page in this app is styled for a light background (bg-white,
+   bg-gray-50, text-gray-900, ...) — none of it has a dark variant. The
+   dark-mode media query that used to live here flipped the body to
+   near-black while every component stayed light, producing black edges
+   around light cards (see MegaMart audit UI-16). Rather than ship that
+   half-implemented state, this is explicitly light-only until the app
+   gets real dark-mode support (next-themes + dark: variants throughout). */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,15 +20,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* --font-sans from @theme inline only gets inlined into the generated
+     .font-sans utility class, not emitted as a real custom property, so
+     referencing it directly here resolved to nothing. --font-geist-sans
+     is the real variable next/font attaches via the body className. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }

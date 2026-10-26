@@ -43,8 +43,8 @@ export default function OrderDetailPage() {
       try {
         const res = await api.get(`/orders/${orderId}`);
         setOrder(res.data);
-      } catch (err: any) {
-        if (err?.response?.status === 404) {
+      } catch (err) {
+        if ((err as { response?: { status?: number } })?.response?.status === 404) {
           setNotFound(true);
         } else {
           console.error('Failed to fetch order', err);
@@ -86,6 +86,7 @@ export default function OrderDetailPage() {
       <header className="bg-white border-b border-gray-200/80 py-4 px-6 flex items-center gap-4 shadow-sm">
         <button
           onClick={() => router.push('/orders')}
+          aria-label="Back to orders"
           className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
