@@ -20,6 +20,7 @@ model User {
   password String
   name     String?
   orders   Order[]
+  cart     Cart?
 }
 
 model Product {
@@ -31,19 +32,42 @@ model Product {
   imageUrl    String?
 
   // 3. This was missing! It holds the text for the AI to read.
-  description String?  
+  description String?
 
   // 4. This stores the AI "Coordinates" (384 numbers).
   //    "Unsupported" means Prisma doesn't touch it; we use Raw SQL.
-  descriptionVector Unsupported("vector(384)")? 
+  descriptionVector Unsupported("vector(384)")?
 
   items       OrderItem[]
+  cartItems   CartItem[]
+}
+
+// The shopping cart. One per user, separate from Order so an unpaid cart
+// can never be mistaken for a placed order (see MegaMart audit BUG-13).
+model Cart {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @unique
+  user      User       @relation(fields: [userId], references: [id])
+  items     CartItem[]
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  @@unique([cartId, productId])
 }
 
 model Order {
   id          Int         @id @default(autoincrement())
   createdAt   DateTime    @default(now())
-  status      String      @default("PENDING")
+  status      String      @default("COMPLETED")
   totalAmount Decimal
   userId      Int
   user        User        @relation(fields: [userId], references: [id])
@@ -58,4 +82,14 @@ model OrderItem {
   order     Order   @relation(fields: [orderId], references: [id])
   productId Int
   product   Product @relation(fields: [productId], references: [id])
+}
+
+// Lets POST /api/checkout be safely retried (e.g. after a flaky network
+// response) without double-charging stock or creating a duplicate order.
+model IdempotencyKey {
+  key       String   @id
+  userId    Int
+  orderId   Int
+  response  Json
+  createdAt DateTime @default(now())
 }

@@ -3,6 +3,8 @@ import cors from 'cors';
 
 import authRoutes from './routes/authRoutes';
 import orderRoutes from './routes/orderRoutes';
+import cartRoutes from './routes/cartRoutes';
+import checkoutRoutes from './routes/checkoutRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import productRoutes from './routes/productRoutes';
 import searchRoutes from './routes/searchRoutes';
@@ -26,6 +28,8 @@ app.use(requestLogger);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/checkout', checkoutRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/search', searchRoutes);

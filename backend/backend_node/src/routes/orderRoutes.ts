@@ -1,14 +1,12 @@
 import { Router } from 'express';
-import { createOrder, getUserOrders } from '../controllers/orderController';
+import { getUserOrders, getOrderById } from '../controllers/orderController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// PROTECTED ROUTE: User must be logged in to order
-// Syntax: router.post(path, middleware, controller)
-router.post('/', authenticateToken, createOrder);
-
-// GET /api/orders
+// Order placement now happens through POST /api/checkout (see checkoutRoutes.ts),
+// which snapshots prices and decrements stock atomically from the cart.
 router.get('/', authenticateToken, getUserOrders);
+router.get('/:id', authenticateToken, getOrderById);
 
 export default router;

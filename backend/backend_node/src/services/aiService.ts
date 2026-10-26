@@ -1,5 +1,9 @@
 import axios from 'axios';
 import prisma from '../config/db';
+import * as cartService from './cartService';
+import { CartError } from './cartService';
+import { checkout as checkoutService } from './checkoutService';
+import { randomUUID } from 'crypto';
 
 const DEFAULT_HF_API_URL =
   'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
@@ -176,7 +180,7 @@ const tools = [
     type: 'function',
     function: {
       name: 'addToCart',
-      description: 'Adds a specific product to the user\'s pending shopping cart. Requires product ID and quantity.',
+      description: 'Adds a specific product to the user\'s shopping cart. Requires product ID and quantity.',
       parameters: {
         type: 'object',
         properties: {
@@ -186,7 +190,7 @@ const tools = [
           },
           quantity: {
             type: 'integer',
-            description: 'The quantity of items to add. Defaults to 1.'
+            description: 'The quantity of items to add. Defaults to 1. Must be a positive whole number.'
           }
         },
         required: ['productId']
@@ -196,8 +200,48 @@ const tools = [
   {
     type: 'function',
     function: {
+      name: 'updateCartItem',
+      description: 'Sets a cart line to an exact quantity (not a delta). Use this for "set quantity to N" or "change X to N" requests.',
+      parameters: {
+        type: 'object',
+        properties: {
+          productId: { type: 'integer', description: 'The ID of the product already in the cart.' },
+          quantity: { type: 'integer', description: 'The exact quantity the line should be set to.' }
+        },
+        required: ['productId', 'quantity']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'removeFromCart',
+      description: 'Removes a single product entirely from the user\'s cart.',
+      parameters: {
+        type: 'object',
+        properties: {
+          productId: { type: 'integer', description: 'The ID of the product to remove.' }
+        },
+        required: ['productId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clearCart',
+      description: 'Empties the user\'s entire cart. Use for "clear my cart" or "empty my cart" requests.',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'checkoutCart',
-      description: 'Completes the checkout process, converting the user\'s pending cart into a completed order.',
+      description: 'Completes the checkout process, converting the user\'s cart into a placed order.',
       parameters: {
         type: 'object',
         properties: {}
@@ -236,33 +280,30 @@ export const executeSearchCatalog = async (query: string): Promise<any> => {
   }
 };
 
+// Below, every cart/checkout tool delegates to the same cartService /
+// checkoutService used by the REST API (src/controllers/cartController.ts,
+// checkoutController.ts), so the agent and the UI can never drift apart on
+// stock validation, pricing or what "the cart" actually contains.
+
+const cartToViewPayload = (cart: Awaited<ReturnType<typeof cartService.getCart>>) => ({
+  items: cart.items.map((item) => ({
+    id: item.productId,
+    name: item.name,
+    price: item.price,
+    imageUrl: item.imageUrl,
+    quantity: item.quantity,
+    subtotal: item.lineTotal
+  })),
+  total: cart.subtotal
+});
+
 export const executeViewCart = async (userId: number): Promise<any> => {
   try {
-    const pendingOrder = await prisma.order.findFirst({
-      where: { userId, status: 'PENDING' },
-      include: {
-        items: {
-          include: { product: true }
-        }
-      }
-    });
-
-    if (!pendingOrder || pendingOrder.items.length === 0) {
+    const cart = await cartService.getCart(userId);
+    if (cart.items.length === 0) {
       return { message: 'Your cart is empty.', items: [], total: 0 };
     }
-
-    return {
-      orderId: pendingOrder.id,
-      items: pendingOrder.items.map(item => ({
-        id: item.product.id,
-        name: item.product.name,
-        price: item.product.price,
-        imageUrl: item.product.imageUrl,
-        quantity: item.quantity,
-        subtotal: Number(item.product.price) * item.quantity
-      })),
-      total: Number(pendingOrder.totalAmount)
-    };
+    return cartToViewPayload(cart);
   } catch (error) {
     console.error('⚠️ View cart tool error:', error);
     return { message: 'Failed to fetch cart.' };
@@ -270,133 +311,85 @@ export const executeViewCart = async (userId: number): Promise<any> => {
 };
 
 export const executeAddToCart = async (userId: number, productId: number, quantity: number = 1): Promise<any> => {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { error: 'Quantity must be a positive whole number.' };
+  }
   try {
-    const product = await prisma.product.findUnique({ where: { id: productId } });
-    if (!product) {
-      return { error: `Product ID ${productId} not found.` };
-    }
-    if (product.stock < quantity) {
-      return { error: `Sorry, only ${product.stock} of ${product.name} left in stock.` };
-    }
-
-    // Run order mutation inside an ACID transaction to guarantee consistancy
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Get or create PENDING order (cart)
-      let pendingOrder = await tx.order.findFirst({
-        where: { userId, status: 'PENDING' }
-      });
-
-      if (!pendingOrder) {
-        pendingOrder = await tx.order.create({
-          data: {
-            userId,
-            status: 'PENDING',
-            totalAmount: 0
-          }
-        });
-      }
-
-      // 2. Add or update item
-      const existingItem = await tx.orderItem.findFirst({
-        where: { orderId: pendingOrder.id, productId }
-      });
-
-      if (existingItem) {
-        await tx.orderItem.update({
-          where: { id: existingItem.id },
-          data: { quantity: existingItem.quantity + quantity }
-        });
-      } else {
-        await tx.orderItem.create({
-          data: {
-            orderId: pendingOrder.id,
-            productId,
-            quantity,
-            price: product.price
-          }
-        });
-      }
-
-      // 3. Recalculate total amount
-      const allItems = await tx.orderItem.findMany({
-        where: { orderId: pendingOrder.id },
-        include: { product: true }
-      });
-
-      const total = allItems.reduce((acc, item) => acc + Number(item.product.price) * item.quantity, 0);
-
-      const updatedOrder = await tx.order.update({
-        where: { id: pendingOrder.id },
-        data: { totalAmount: total },
-        include: { items: { include: { product: true } } }
-      });
-
-      return { order: updatedOrder, product };
-    });
-
+    const cart = await cartService.addItem(userId, productId, quantity);
+    const addedProduct = cart.items.find((item) => item.productId === productId);
     return {
       success: true,
-      message: `Added ${quantity}x ${result.product.name} to your cart.`,
-      cartTotal: result.order.totalAmount,
-      addedProduct: {
-        id: result.product.id,
-        name: result.product.name,
-        price: result.product.price,
-        imageUrl: result.product.imageUrl
+      message: `Added ${quantity}x ${addedProduct?.name ?? `product ${productId}`} to your cart.`,
+      cartTotal: cart.subtotal,
+      addedProduct: addedProduct && {
+        id: addedProduct.productId,
+        name: addedProduct.name,
+        price: addedProduct.price,
+        imageUrl: addedProduct.imageUrl
       }
     };
   } catch (error) {
+    if (error instanceof CartError) {
+      return { error: error.message };
+    }
     console.error('⚠️ Add to cart tool error:', error);
     return { error: 'Could not add product to cart.' };
   }
 };
 
+export const executeUpdateCartItem = async (userId: number, productId: number, quantity: number): Promise<any> => {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { error: 'Quantity must be a positive whole number. Use removeFromCart to take an item out entirely.' };
+  }
+  try {
+    const cart = await cartService.updateItem(userId, productId, quantity);
+    return { success: true, message: `Updated quantity to ${quantity}.`, cart: cartToViewPayload(cart) };
+  } catch (error) {
+    if (error instanceof CartError) {
+      return { error: error.message };
+    }
+    console.error('⚠️ Update cart item tool error:', error);
+    return { error: 'Could not update that cart item.' };
+  }
+};
+
+export const executeRemoveFromCart = async (userId: number, productId: number): Promise<any> => {
+  try {
+    const cart = await cartService.removeItem(userId, productId);
+    return { success: true, message: 'Removed item from your cart.', cart: cartToViewPayload(cart) };
+  } catch (error) {
+    if (error instanceof CartError) {
+      return { error: error.message };
+    }
+    console.error('⚠️ Remove from cart tool error:', error);
+    return { error: 'Could not remove that item.' };
+  }
+};
+
+export const executeClearCart = async (userId: number): Promise<any> => {
+  try {
+    await cartService.clearCart(userId);
+    return { success: true, message: 'Your cart is now empty.' };
+  } catch (error) {
+    console.error('⚠️ Clear cart tool error:', error);
+    return { error: 'Could not clear your cart.' };
+  }
+};
+
 export const executeCheckoutCart = async (userId: number): Promise<any> => {
   try {
-    const pendingOrder = await prisma.order.findFirst({
-      where: { userId, status: 'PENDING' },
-      include: { items: { include: { product: true } } }
-    });
-
-    if (!pendingOrder || pendingOrder.items.length === 0) {
-      return { error: 'Your cart is empty. Nothing to checkout.' };
-    }
-
-    // Validate stocks
-    for (const item of pendingOrder.items) {
-      if (item.product.stock < item.quantity) {
-        return { error: `Checkout failed: Not enough stock for ${item.product.name}.` };
-      }
-    }
-
-    // ACID Transaction for checkout
-    const result = await prisma.$transaction(async (tx) => {
-      // A. Decrement stock for all items
-      for (const item of pendingOrder.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } }
-        });
-      }
-
-      // B. Update status to completed
-      const completedOrder = await tx.order.update({
-        where: { id: pendingOrder.id },
-        data: { status: 'COMPLETED' },
-        include: { items: { include: { product: true } } }
-      });
-
-      return completedOrder;
-    });
-
+    const order = await checkoutService(userId, undefined, `agent-${userId}-${randomUUID()}`);
     return {
       success: true,
       message: 'Checkout completed successfully!',
-      orderId: result.id,
-      total: result.totalAmount,
-      items: result.items.map(i => ({ name: i.product.name, qty: i.quantity }))
+      orderId: order.orderId,
+      total: order.total,
+      items: order.items.map((i: { name: string; quantity: number }) => ({ name: i.name, qty: i.quantity }))
     };
   } catch (error) {
+    if (error instanceof CartError) {
+      return { error: error.message };
+    }
     console.error('⚠️ Checkout cart tool error:', error);
     return { error: 'Checkout transaction failed.' };
   }
@@ -417,11 +410,49 @@ export const executeCheckoutCart = async (userId: number): Promise<any> => {
 export const tryDeterministicIntent = async (userId: number, userMessage: string): Promise<any | null> => {
   const query = userMessage.toLowerCase();
 
-  // Explicit "product ID <n>" Add Intent (sent by the frontend's Add/Buy buttons)
+  // Explicit Clear/Empty Cart Intent (sent by the cart UI's "Clear cart" button)
+  if (/^(clear|empty)\s+(my\s+|the\s+)?(cart|bag)\b/.test(query)) {
+    const res = await executeClearCart(userId);
+    return {
+      content: res.error ? `⚠️ ${res.error}` : `🗑️ ${res.message}`,
+      toolCalled: 'clearCart',
+      toolResult: res
+    };
+  }
+
   const productIdMatch = query.match(/product\s*id\s*(\d+)/i);
+
+  // Explicit Remove Intent (sent by the cart UI's trash icon)
+  if (productIdMatch && /\b(remove|delete)\b/.test(query)) {
+    const productId = parseInt(productIdMatch[1], 10);
+    const res = await executeRemoveFromCart(userId, productId);
+    return {
+      content: res.error ? `⚠️ ${res.error}` : `🗑️ ${res.message}`,
+      toolCalled: 'removeFromCart',
+      toolResult: res
+    };
+  }
+
+  // Explicit Set-Quantity Intent (sent by the cart UI's quantity stepper)
+  const setQtyMatch = query.match(/set\s+quantity\s+to\s*(-?\d+)/i);
+  if (productIdMatch && setQtyMatch) {
+    const productId = parseInt(productIdMatch[1], 10);
+    const quantity = parseInt(setQtyMatch[1], 10);
+    const res = await executeUpdateCartItem(userId, productId, quantity);
+    return {
+      content: res.error ? `⚠️ ${res.error}` : `✅ ${res.message}`,
+      toolCalled: 'updateCartItem',
+      toolResult: res
+    };
+  }
+
+  // Explicit "product ID <n>" Add Intent (sent by the frontend's Add/Buy buttons).
+  // The quantity capture allows a leading minus sign so "Add -5x…" resolves to
+  // quantity -5 and gets rejected by executeAddToCart's validation, rather than
+  // silently losing the sign and adding a positive 5 (the original BUG-05).
   if (productIdMatch) {
     const productId = parseInt(productIdMatch[1], 10);
-    const qtyMatch = query.match(/(\d+)\s*x\b/i);
+    const qtyMatch = query.match(/(-?\d+)\s*x\b/i);
     const quantity = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
     const res = await executeAddToCart(userId, productId, quantity);
     if (res.error) {
@@ -453,11 +484,56 @@ export const tryDeterministicIntent = async (userId: number, userMessage: string
   return null;
 };
 
+/**
+ * Resolves a free-text item reference ("the jacket", "sony headphones") to a
+ * productId already sitting in the user's cart, by substring match on name.
+ * Returns null (with a helpful message) when it can't resolve unambiguously.
+ */
+const resolveCartItemByName = (cart: { items: { id: number; name: string }[] }, phrase: string) => {
+  const needle = phrase.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = cart.items.filter((item) => item.name.toLowerCase().includes(needle));
+  return matches.length === 1 ? matches[0] : null;
+};
+
 export const executeMockAgent = async (userId: number, userMessage: string): Promise<any> => {
   const query = userMessage.toLowerCase();
 
   const deterministic = await tryDeterministicIntent(userId, userMessage);
   if (deterministic) return deterministic;
+
+  // Free-text Clear Cart Intent (e.g. "please empty my cart")
+  if (/\b(empty|clear)\b.*\b(cart|bag)\b/.test(query)) {
+    const res = await executeClearCart(userId);
+    return { content: res.error ? `⚠️ ${res.error}` : `🗑️ ${res.message}`, toolCalled: 'clearCart', toolResult: res };
+  }
+
+  // Free-text Remove Intent (e.g. "remove the puffer jacket from my cart")
+  const removeMatch = query.match(/\bremove\b\s+(?:the\s+)?(.+?)\s+(?:from|out of)\s+(?:my\s+|the\s+)?(?:cart|bag)\b/i);
+  if (removeMatch) {
+    const cart = await executeViewCart(userId);
+    const target = resolveCartItemByName(cart, removeMatch[1]);
+    if (!target) {
+      return { content: `I couldn't find a single matching item in your cart for "${removeMatch[1].trim()}". Try "show my cart" to see exact names.`, toolCalled: 'viewCart', toolResult: cart };
+    }
+    const res = await executeRemoveFromCart(userId, target.id);
+    return { content: res.error ? `⚠️ ${res.error}` : `🗑️ ${res.message}`, toolCalled: 'removeFromCart', toolResult: res };
+  }
+
+  // Free-text Set-Quantity Intent (e.g. "set quantity to 1")
+  const setQtyFreeMatch = query.match(/set\s+(?:the\s+)?quantity\s+to\s*(-?\d+)/i);
+  if (setQtyFreeMatch) {
+    const quantity = parseInt(setQtyFreeMatch[1], 10);
+    const cart = await executeViewCart(userId);
+    if (cart.items.length === 0) {
+      return { content: "Your cart is empty, so there's nothing to update.", toolCalled: 'viewCart', toolResult: cart };
+    }
+    if (cart.items.length > 1) {
+      return { content: `Which item would you like to set to ${quantity}? You have: ${cart.items.map((i: any) => i.name).join(', ')}.`, toolCalled: 'viewCart', toolResult: cart };
+    }
+    const res = await executeUpdateCartItem(userId, cart.items[0].id, quantity);
+    return { content: res.error ? `⚠️ ${res.error}` : `✅ ${res.message}`, toolCalled: 'updateCartItem', toolResult: res };
+  }
 
   // B2. Free-text Add to Cart Intent (e.g. "add a laptop to my cart")
   const addMatch = query.match(/(?:add|put|buy)\s+(?:to\s+cart\s+)?(?:a\s+|the\s+)?([a-zA-Z0-9\s"'\-]+?)(?:\s+(?:to|in)\s+(?:my\s+|the\s+)?(?:cart|bag))?$/i);
@@ -536,17 +612,22 @@ export const askAgent = async (userId: number, message: string, chatHistory: any
   try {
     // Build context with System Prompt
     const systemPrompt = `You are MegaMart's premium AI Shopping Concierge (2026 Edition).
-Your purpose is to assist the user in discovering products, adding them to the cart, viewing their cart, and checking out.
+Your purpose is to assist the user in discovering products, managing their cart, and checking out.
 
 You have access to the following dynamic tools:
 1. 'searchCatalog' (query): Search products by text/description.
 2. 'viewCart' (): Look up user's active cart list & total amount.
 3. 'addToCart' (productId, quantity): Add an item to the user's cart.
-4. 'checkoutCart' (): Checkout the pending order.
+4. 'updateCartItem' (productId, quantity): Set a cart line to an exact quantity.
+5. 'removeFromCart' (productId): Remove a single item from the cart entirely.
+6. 'clearCart' (): Empty the whole cart.
+7. 'checkoutCart' (): Checkout the cart.
 
 RULES:
 - When a user asks for products, ALWAYS call 'searchCatalog' and let the frontend render the cards.
 - When a user asks to buy/add something, search for it first if you don't know the ID, then call 'addToCart'.
+- If you don't know a product's ID for a remove/update request, call 'viewCart' first to look it up.
+- Never invent a quantity below 1 or silently flip a negative quantity positive — if the user's requested quantity isn't a positive whole number, tell them it's invalid instead of calling a tool.
 - RENDER product options nicely, and suggest checking out when they are ready.
 - Keep responses concise and engaging.`;
 
@@ -620,8 +701,35 @@ RULES:
           toolCalled: 'addToCart',
           toolResult
         };
-      } 
-      
+      }
+
+      if (functionName === 'updateCartItem') {
+        toolResult = await executeUpdateCartItem(userId, args.productId, args.quantity);
+        return {
+          content: toolResult.error ? `⚠️ ${toolResult.error}` : `✅ ${toolResult.message}`,
+          toolCalled: 'updateCartItem',
+          toolResult
+        };
+      }
+
+      if (functionName === 'removeFromCart') {
+        toolResult = await executeRemoveFromCart(userId, args.productId);
+        return {
+          content: toolResult.error ? `⚠️ ${toolResult.error}` : `🗑️ ${toolResult.message}`,
+          toolCalled: 'removeFromCart',
+          toolResult
+        };
+      }
+
+      if (functionName === 'clearCart') {
+        toolResult = await executeClearCart(userId);
+        return {
+          content: toolResult.error ? `⚠️ ${toolResult.error}` : `🗑️ ${toolResult.message}`,
+          toolCalled: 'clearCart',
+          toolResult
+        };
+      }
+
       if (functionName === 'checkoutCart') {
         toolResult = await executeCheckoutCart(userId);
         if (toolResult.error) {
