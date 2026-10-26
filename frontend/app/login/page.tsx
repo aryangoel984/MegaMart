@@ -4,32 +4,46 @@ import Link from 'next/link';
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/utils/api';
-import { Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { saveSession } from '@/utils/auth';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Compass, Loader2 } from 'lucide-react';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [guestLoading, setGuestLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get('next');
   const sessionExpired = searchParams.get('reason') === 'expired';
+
+  const goNext = () => router.push(next && next.startsWith('/') ? next : '/dashboard');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       // Call the Backend
       const res = await api.post('/auth/login', { email, password });
-
-      // Save Token to LocalStorage (The Browser's Pocket)
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify({ name: res.data.name, id: res.data.userId }));
-
-      // Return the user to wherever they were headed, if anywhere.
-      router.push(next && next.startsWith('/') ? next : '/dashboard');
+      saveSession(res.data);
+      goNext();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Login failed');
+    }
+  };
+
+  const handleGuest = async () => {
+    setError('');
+    setGuestLoading(true);
+    try {
+      const res = await api.post('/auth/guest', {});
+      saveSession(res.data);
+      goNext();
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(message || 'Could not start a guest session');
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -113,6 +127,25 @@ function LoginForm() {
             Sign In <ArrowRight className="w-4.5 h-4.5" />
           </button>
         </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-100"></div>
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-white px-3 text-gray-400 font-semibold uppercase tracking-wider">or</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGuest}
+          disabled={guestLoading}
+          className="w-full flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 font-bold py-3.5 rounded-xl transition-all active:scale-[0.98]"
+        >
+          {guestLoading ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Compass className="w-4.5 h-4.5" />}
+          Explore as guest
+        </button>
 
         <p className="mt-6 text-center text-sm text-gray-500 font-semibold">
           Don't have an account?{' '}

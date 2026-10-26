@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import ColdStartBanner from "@/components/ColdStartBanner";
+import GuestBanner from "@/components/GuestBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -35,6 +36,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ColdStartBanner />
+        <GuestBanner />
         <main>{children}</main>
         <Toaster richColors position="top-right" />
       </body>

@@ -3,6 +3,15 @@ import { z } from 'zod';
 import prisma from '../config/db';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
+
+const GUEST_SESSION_MS = 24 * 60 * 60 * 1000;
+
+const signToken = (userId: number, email: string): string | null => {
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) return null;
+  return jwt.sign({ userId, email }, jwtSecret, { expiresIn: '1h' });
+};
 
 const registerSchema = z.object({
   email: z.string().trim().email('Enter a valid email address'),
@@ -73,22 +82,47 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ message: 'Invalid email or password' });
       return;
     }
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
+    const token = signToken(user.id, user.email);
+    if (!token) {
       res.status(500).json({ message: 'Server misconfigured: JWT_SECRET is missing' });
       return;
     }
-
-    // Generate JWT Token (The "ID Card")
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      jwtSecret,
-      { expiresIn: '1h' }
-    );
-    res.json({ token, userId: user.id, name: user.name });
+    res.json({ token, userId: user.id, name: user.name, isGuest: user.isGuest });
 
   } catch(error){
         res.status(500).json({ message: 'Something went wrong', error });
     }
+};
+
+// 3. Guest login — lets a reviewer try the app (search, cart, chat,
+// checkout) without registering. The account is real (so it works with
+// every existing userId-scoped query) but flagged isGuest with a 24h
+// expiresAt; cleanupExpiredGuests (src/jobs/cleanupGuests.ts) deletes it
+// — and, via cascading FKs, its cart and orders — once that passes.
+export const createGuest = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const id = randomUUID();
+    const randomPasswordHash = await bcrypt.hash(randomUUID(), 10);
+
+    const created = await prisma.user.create({
+      data: {
+        email: `guest-${id}@guest.megamart.local`,
+        password: randomPasswordHash,
+        name: 'Guest',
+        isGuest: true,
+        expiresAt: new Date(Date.now() + GUEST_SESSION_MS),
+      },
+    });
+
+    const token = signToken(created.id, created.email);
+    if (!token) {
+      res.status(500).json({ message: 'Server misconfigured: JWT_SECRET is missing' });
+      return;
+    }
+    res.status(201).json({ token, userId: created.id, name: created.name, isGuest: true });
+  } catch (error) {
+    console.error('⚠️ Guest session error:', error);
+    res.status(500).json({ message: 'Could not start a guest session' });
+  }
 };
 

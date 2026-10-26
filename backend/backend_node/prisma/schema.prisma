@@ -15,12 +15,17 @@ datasource db {
 }
 
 model User {
-  id       Int     @id @default(autoincrement())
-  email    String  @unique
-  password String
-  name     String?
-  orders   Order[]
-  cart     Cart?
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  name      String?
+  // Guest accounts (see POST /api/auth/guest) let a reviewer try the app
+  // without registering. expiresAt drives cleanupExpiredGuests, which
+  // deletes them (and, via cascade below, their cart/orders) ~24h later.
+  isGuest   Boolean   @default(false)
+  expiresAt DateTime?
+  orders    Order[]
+  cart      Cart?
 }
 
 model Product {
@@ -47,7 +52,7 @@ model Product {
 model Cart {
   id        Int        @id @default(autoincrement())
   userId    Int        @unique
-  user      User       @relation(fields: [userId], references: [id])
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items     CartItem[]
   updatedAt DateTime   @updatedAt
 }
@@ -70,7 +75,7 @@ model Order {
   status      String      @default("COMPLETED")
   totalAmount Decimal
   userId      Int
-  user        User        @relation(fields: [userId], references: [id])
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   items       OrderItem[]
 }
 
@@ -79,7 +84,7 @@ model OrderItem {
   quantity  Int
   price     Decimal
   orderId   Int
-  order     Order   @relation(fields: [orderId], references: [id])
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId Int
   product   Product @relation(fields: [productId], references: [id])
 }

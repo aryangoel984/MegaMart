@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import api from "@/utils/api";
+import { saveSession } from "@/utils/auth";
+import { Compass, Loader2 } from "lucide-react";
 
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     // localStorage only exists client-side, so auth state can't be read
@@ -12,6 +18,18 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoggedIn(Boolean(localStorage.getItem('token')));
   }, []);
+
+  const handleGuest = async () => {
+    setGuestLoading(true);
+    try {
+      const res = await api.post('/auth/guest', {});
+      saveSession(res.data);
+      router.push('/dashboard');
+    } catch (err) {
+      console.error('Could not start guest session:', err);
+      setGuestLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -86,6 +104,14 @@ export default function Home() {
               >
                 Sign In
               </Link>
+              <button
+                onClick={handleGuest}
+                disabled={guestLoading}
+                className="flex items-center gap-2 bg-white border-2 border-gray-200 text-gray-700 px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-50 transition"
+              >
+                {guestLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Compass className="w-5 h-5" />}
+                Explore as Guest
+              </button>
             </>
           )}
         </div>
