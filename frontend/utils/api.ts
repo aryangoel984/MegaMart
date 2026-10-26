@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { clearSession } from './auth';
+import { requestStarted, requestFinished } from './requestActivity';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL, // Pointing to your Node Backend
@@ -7,6 +8,7 @@ const api = axios.create({
 
 // INTERCEPTOR: Automatically add Token to requests
 api.interceptors.request.use((config) => {
+  requestStarted();
   // We will store the token in LocalStorage
   const token = localStorage.getItem('token');
   if (token) {
@@ -19,8 +21,12 @@ api.interceptors.request.use((config) => {
 // stale session and send the user back to login (with a ?next= so they land
 // back where they were) instead of leaving the app silently broken.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    requestFinished();
+    return response;
+  },
   (error) => {
+    requestFinished();
     if (
       typeof window !== 'undefined' &&
       error?.response?.status === 401 &&

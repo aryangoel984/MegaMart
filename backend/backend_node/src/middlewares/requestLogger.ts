@@ -1,4 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
+import { RequestWithId } from './requestId';
 
 const SENSITIVE_KEYS = new Set(['password', 'token', 'authorization', 'jwt', 'secret', 'apiKey', 'apikey']);
 
@@ -22,9 +23,9 @@ function redact(value: unknown): unknown {
  * Logs every incoming request and its response (status + duration).
  * Place after express.json() so req.body is available.
  */
-export const requestLogger = (req: Request, res: Response, next: NextFunction): void => {
+export const requestLogger = (req: RequestWithId, res: Response, next: NextFunction): void => {
   const started = Date.now();
-  const { method, originalUrl, query, ip } = req;
+  const { method, originalUrl, query, ip, id } = req;
   const origin = req.get('origin') || '-';
   const userAgent = req.get('user-agent') || '-';
   const hasAuth = Boolean(req.get('authorization'));
@@ -34,7 +35,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
       : undefined;
 
   console.log('\n──────── request ────────');
-  console.log(`[${new Date().toISOString()}] → ${method} ${originalUrl}`);
+  console.log(`[${new Date().toISOString()}] [${id}] → ${method} ${originalUrl}`);
   console.log(`  ip: ${ip}  origin: ${origin}`);
   console.log(`  auth: ${hasAuth ? 'Bearer present' : 'none'}`);
   if (Object.keys(query).length > 0) {
@@ -49,7 +50,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     const ms = Date.now() - started;
     const level = res.statusCode >= 500 ? 'ERR' : res.statusCode >= 400 ? 'WARN' : 'OK';
     console.log(
-      `[${new Date().toISOString()}] ← ${level} ${method} ${originalUrl} → ${res.statusCode} (${ms}ms)`
+      `[${new Date().toISOString()}] [${id}] ← ${level} ${method} ${originalUrl} → ${res.statusCode} (${ms}ms)`
     );
     console.log('──────── response ───────\n');
   });
