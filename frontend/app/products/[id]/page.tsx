@@ -89,8 +89,7 @@ export default function ProductDetailPage() {
   const handleAddToCart = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      alert('Please login to purchase items!');
-      router.push('/login');
+      router.push(`/login?next=/products/${productId}`);
       return;
     }
 
@@ -116,8 +115,7 @@ export default function ProductDetailPage() {
   const handleBuyNow = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      alert('Please login to purchase items!');
-      router.push('/login');
+      router.push(`/login?next=/products/${productId}`);
       return;
     }
     if (!product) return;

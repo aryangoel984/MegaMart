@@ -1,17 +1,35 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import prisma from '../config/db';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
+const registerSchema = z.object({
+  email: z.string().trim().email('Enter a valid email address'),
+  name: z.string().trim().min(1).optional(),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Za-z]/, 'Password must include a letter')
+    .regex(/[0-9]/, 'Password must include a number'),
+});
+
 // 1. Register logic
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, name } = req.body;
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(422).json({ message: parsed.error.issues[0]?.message || 'Invalid registration details' });
+      return;
+    }
+    const { email, password, name } = parsed.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      res.status(400).json({ message: 'User already exists' });
+      // 409 Conflict, not 400 — the request itself was well-formed, it
+      // just conflicts with existing state.
+      res.status(409).json({ message: 'An account with this email already exists' });
       return;
     }
 
@@ -37,16 +55,22 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 export const login = async (req: Request, res: Response): Promise<void> => {
   try{
     const { email, password } = req.body;
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      res.status(422).json({ message: 'Email and password are required' });
+      return;
+    }
     // Find User
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      res.status(400).json({ message: 'Invalid credentials' });
+      // Same generic message as a wrong password, so login never reveals
+      // whether an email is registered.
+      res.status(401).json({ message: 'Invalid email or password' });
       return;
     }
     // Check Password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      res.status(400).json({ message: 'Invalid credentials' });
+      res.status(401).json({ message: 'Invalid email or password' });
       return;
     }
     const jwtSecret = process.env.JWT_SECRET;

@@ -5,14 +5,21 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/utils/api';
 import Link from 'next/link'; // For navigation links
-import { User, Mail, Lock, ArrowRight } from 'lucide-react';
+import { User, Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
+
+const PASSWORD_MIN_LENGTH = 8;
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+
+  const passwordHasLetter = /[A-Za-z]/.test(password);
+  const passwordHasNumber = /[0-9]/.test(password);
+  const passwordLongEnough = password.length >= PASSWORD_MIN_LENGTH;
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,13 +65,15 @@ export default function RegisterPage() {
         <form onSubmit={handleRegister} className="space-y-5">
           {/* Name Field */}
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Full Name</label>
+            <label htmlFor="name" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Full Name</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
                 <User className="w-5 h-5" />
               </span>
-              <input 
-                type="text" 
+              <input
+                id="name"
+                type="text"
+                autoComplete="name"
                 className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all text-gray-900 placeholder-gray-400 outline-none"
                 placeholder="John Doe"
                 value={name}
@@ -76,13 +85,15 @@ export default function RegisterPage() {
 
           {/* Email Field */}
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Email Address</label>
+            <label htmlFor="email" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Email Address</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
                 <Mail className="w-5 h-5" />
               </span>
-              <input 
-                type="email" 
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
                 className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all text-gray-900 placeholder-gray-400 outline-none"
                 placeholder="you@example.com"
                 value={email}
@@ -94,24 +105,39 @@ export default function RegisterPage() {
 
           {/* Password Field */}
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Password</label>
+            <label htmlFor="password" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Password</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
                 <Lock className="w-5 h-5" />
               </span>
-              <input 
-                type="password" 
-                className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all text-gray-900 placeholder-gray-400 outline-none"
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                className="w-full pl-11 pr-11 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all text-gray-900 placeholder-gray-400 outline-none"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={PASSWORD_MIN_LENGTH}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
+            <ul className="mt-2 space-y-0.5 text-xs">
+              <li className={passwordLongEnough ? 'text-green-600' : 'text-gray-400'}>• At least {PASSWORD_MIN_LENGTH} characters</li>
+              <li className={passwordHasLetter ? 'text-green-600' : 'text-gray-400'}>• Includes a letter</li>
+              <li className={passwordHasNumber ? 'text-green-600' : 'text-gray-400'}>• Includes a number</li>
+            </ul>
           </div>
 
-          <button 
+          <button
             type="submit" 
             className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-blue-500/20"
           >

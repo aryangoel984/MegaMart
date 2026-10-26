@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/utils/api';
+import { clearSession } from '@/utils/auth';
 import { Search, ShoppingBag, LogOut, Package, TrendingUp, User, Clock, ChevronRight, Sparkles } from 'lucide-react';
 
 interface DashboardData {
@@ -34,7 +35,7 @@ export default function Dashboard() {
         setData(res.data);
       } catch (err) {
         console.error('Failed to fetch dashboard', err);
-        localStorage.removeItem('token');
+        clearSession();
         router.push('/login');
       } finally {
         setLoading(false);
@@ -45,7 +46,7 @@ export default function Dashboard() {
   }, [router]);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    clearSession();
     router.push('/login');
   };
 

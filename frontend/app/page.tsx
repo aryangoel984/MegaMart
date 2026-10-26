@@ -1,6 +1,18 @@
+'use client';
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 export default function Home() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    // localStorage only exists client-side, so auth state can't be read
+    // during the server render — this one-time sync-on-mount is intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsLoggedIn(Boolean(localStorage.getItem('token')));
+  }, []);
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* 1. Navbar */}
@@ -9,18 +21,29 @@ export default function Home() {
           MegaMart<span className="text-black">.ai</span>
         </div>
         <div className="space-x-4">
-          <Link 
-            href="/login" 
-            className="text-gray-600 hover:text-black font-medium transition"
-          >
-            Login
-          </Link>
-          <Link 
-            href="/register" 
-            className="bg-black text-white px-5 py-2.5 rounded-full font-medium hover:bg-gray-800 transition"
-          >
-            Get Started
-          </Link>
+          {isLoggedIn ? (
+            <Link
+              href="/dashboard"
+              className="bg-black text-white px-5 py-2.5 rounded-full font-medium hover:bg-gray-800 transition"
+            >
+              Go to Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="text-gray-600 hover:text-black font-medium transition"
+              >
+                Login
+              </Link>
+              <Link
+                href="/register"
+                className="bg-black text-white px-5 py-2.5 rounded-full font-medium hover:bg-gray-800 transition"
+              >
+                Get Started
+              </Link>
+            </>
+          )}
         </div>
       </nav>
 
@@ -42,18 +65,29 @@ export default function Home() {
         </p>
 
         <div className="flex gap-4">
-          <Link 
-            href="/register" 
-            className="bg-blue-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-blue-700 transition shadow-lg shadow-blue-500/30"
-          >
-            Create Account
-          </Link>
-          <Link 
-            href="/login" 
-            className="bg-gray-100 text-gray-900 px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-200 transition"
-          >
-            Sign In
-          </Link>
+          {isLoggedIn ? (
+            <Link
+              href="/dashboard"
+              className="bg-blue-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-blue-700 transition shadow-lg shadow-blue-500/30"
+            >
+              Go to Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/register"
+                className="bg-blue-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-blue-700 transition shadow-lg shadow-blue-500/30"
+              >
+                Create Account
+              </Link>
+              <Link
+                href="/login"
+                className="bg-gray-100 text-gray-900 px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-200 transition"
+              >
+                Sign In
+              </Link>
+            </>
+          )}
         </div>
 
         {/* 3. Tech Stack Grid (Great for Portfolio) */}
